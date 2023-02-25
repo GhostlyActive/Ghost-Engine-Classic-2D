@@ -1,10 +1,9 @@
 # Ghost-Engine-Classic-2D
 
-### Creating a Game Engine from Raycasting to Binary Space Partitioning. Everything runs on an Arduino Microcontroller and is then displayed on an OLED Display.
+### This project involves creating a pseudo 3D game engine that uses raycasting and binary space partitioning techniques to render 3D environments on an OLED display powered by an Arduino.
 
 
-The important thing to know about the project is that I started with the raycasting algorithm for rendering the world (Like in Wolfenstein 3D). Then I used Binary Space Partitioning (Doom) and replaced the array data structure of the map with a binary tree, which contains the divided map and much more in the nodes.
-The rendering is more complex. Visibility problems can be solved e.g. with traversal.
+This project is based on the raycasting algorithm used in games like Wolfenstein 3D, and it has been extended to include Binary Space Partitioning techniques (as seen in Doom) and a binary tree data structure for more efficient rendering of the game world. The engine's enhanced rendering capabilities include the ability to solve visibility problems using traversal algorithms, resulting in a more immersive gaming experience.
 
 
 
@@ -18,7 +17,7 @@ The rendering is more complex. Visibility problems can be solved e.g. with trave
 
 Game:
 
-The idea of the game is that the first player must place walls, enemies, start position and target position. The second player has to use a compass to find the target in the pseudo 3D environment without dying. He also has the ability to place walls to kill enemies.
+In this game, one player creates a pseudo 3D environment by placing walls, enemies, a start position, and a target position. The other player must navigate the environment using a compass and avoid Obstacles while attempting to reach the target. Additionally, the second player can place walls to eliminate enemies, adding an extra layer of strategy to the game.
 
 
 
