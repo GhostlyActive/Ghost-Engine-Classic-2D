@@ -24,7 +24,7 @@ In this game, one player creates a pseudo 3D environment by placing walls, enemi
 <p align="center">
   <img src="/Media/Final_Game.png" width="400" alt="Final Game">
   <img src="/Media/Scene.png" width="400" alt="Scene from Engine">
-  <img src="/Media/Visual_Scene.png" width="350" alt="Wall Rendering">
-  <img src="/Media/Map_Editor.jpeg" width="408" alt="Map Editor">
+  <img src="/Media/Visual_Scene.png" width="400" alt="Wall Rendering">
+  <img src="/Media/Map_Editor.jpeg" width="400" alt="Map Editor">
   <img src="/Media/Wolfenstein 3D.jpeg" width="800" alt="Wolfenstein 3d">
 </p>
