@@ -20,11 +20,11 @@ For this project we are using the Adafruit constructor for Hardware SPI Init, dr
 #define SCREEN_HEIGHT 128 
 
 //pinout for OLED Driver (SCLK_PIN and MOSI_PIN are used in Hardware SPI on Arduino Due -> no digital pins needed)
-#define SCLK_PIN 13
-#define MOSI_PIN 11
-#define DC_PIN   8
+#define SCLK_PIN 52
+#define MOSI_PIN 51
+#define DC_PIN   9
 #define CS_PIN   10
-#define RST_PIN  9
+#define RST_PIN  8
 
 #define	BLACK           0x0000
 #define	BLUE            0x001F

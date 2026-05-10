@@ -22,6 +22,9 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
 
   for(;;)
   {
+    // Serial monitor input (parallel to hardware buttons).
+    Serial_poll();
+
     //target cross is moveable around matrix. and screening alle elements with chosen color
 
     tft.drawFastVLine(position_x*5.5,0,SCREEN_HEIGHT,WHITE);
@@ -70,8 +73,7 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
       }
     }
 
-       /********************************************Controlls***********************************************
-        ****************************************************************************************************/
+        // ----- Controls -----
         // action_2 (start)
         // up
         // down
@@ -83,7 +85,7 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
         //start game and engine
         // button action_2
         btn_Bounce_A2.update();
-		    if(btn_Bounce_A2.fell())
+		    if(btn_Bounce_A2.fell() || Serial_A2())
         {
 
           if(worldMap[position_y][position_x] == 0)
@@ -99,12 +101,12 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
 
         // go up
         btn_Bounce_F.update();
-		    if(btn_Bounce_F.fell())  
-        {  
+		    if(btn_Bounce_F.fell() || Serial_F())
+        {
 
           tft.fillScreen(BLACK);
 
-          if(position_y > 1) 
+          if(position_y > 1)
           {
             position_y--;
           }
@@ -113,8 +115,8 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
 
         // go down
         btn_Bounce_B.update();
-		    if(btn_Bounce_B.fell())
-        {  
+		    if(btn_Bounce_B.fell() || Serial_B())
+        {
 
           tft.fillScreen(BLACK);
 
@@ -126,12 +128,12 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
 
         // go left
         btn_Bounce_L.update();
-		    if(btn_Bounce_L.fell())
-        {  
+		    if(btn_Bounce_L.fell() || Serial_L())
+        {
 
           tft.fillScreen(BLACK);
-        
-          if(position_x > 1) 
+
+          if(position_x > 1)
           {
 
            position_x--;
@@ -142,11 +144,11 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
 
         // go right
         btn_Bounce_R.update();
-		    if(btn_Bounce_R.fell())
-        {  
+		    if(btn_Bounce_R.fell() || Serial_R())
+        {
 
           tft.fillScreen(BLACK);
-        
+
           if(position_x < size_x-2){
 
           position_x++;
@@ -154,10 +156,10 @@ void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
           }
         }
 
-      // Button Action_1 
+      // Button Action_1
       btn_Bounce_A1.update();
-		  if(btn_Bounce_A1.fell())
-      {  
+		  if(btn_Bounce_A1.fell() || Serial_A1())
+      {
         // change color when pushed
         switch (worldMap[position_y][position_x])
         {

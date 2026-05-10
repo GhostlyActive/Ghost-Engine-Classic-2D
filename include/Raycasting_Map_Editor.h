@@ -7,7 +7,7 @@
 
 #include "Display_Driver.h"
 #include "Raycasting_Engine.h"
-#include "Controlls.h"
+#include "Controls.h"
 
 
 class buildMapEditor { 

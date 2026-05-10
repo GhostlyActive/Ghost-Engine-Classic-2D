@@ -1,771 +1,674 @@
 #include "BSP_Engine.h"
+#include <Arduino.h>
 
 
-
-struct Tree* newLeaf(struct Container leaf) 
-{ 
-  // Allocate memory for new node  
-  struct Tree* Tree = (struct Tree*)malloc(sizeof(struct Tree)); 
-  
-  // Assign data to this node 
-  Tree->leaf = leaf; 
-  
-  // Initialize left and right children as NULL 
-  Tree->lchild = NULL; 
-  Tree->rchild = NULL; 
-  return(Tree); 
-} 
-
-
-struct Array2 geo_split(struct Container* container){
-
-  struct Array2 two;
-
-//vertical
-  int direct = random(0,2);
+/* ============================================================================
+ *  BSP_Engine.cpp
+ *
+ *  Sections:
+ *      1) AVR free-RAM helper
+ *      2) Map generation: BSP recursive split + leaf numbering
+ *      3) Geometry helpers: VectorDegree
+ *      4) Spatial query: getPosition
+ *      5) Build entry point: Save_BSP_Engine
+ *      6) Renderer: FillSegment, DrawSegment, DrawWall, RenderBSP
+ *      7) View helpers: FieldOfView2Angle
+ *
+ *  See BSP_Engine.h for the API and BSP_Settings.h for tunables.
+ * ============================================================================ */
 
 
-   if(direct == 0) {
+/* ============================================================================
+ *  1) Free-RAM helper for AVR
+ * ============================================================================ */
 
-   two.array[0].x = container->x; two.array[0].y = container->y;
-   //two.array[0].w = random(1, container->w); two.array[0].h = container->h;
-   two.array[0].w = container->w/2; two.array[0].h = container->h;
+extern int  __heap_start;
+extern int* __brkval;
 
-
-   two.array[1].x = container->x + two.array[0].w; two.array[1].y = container->y;
-   two.array[1].w = container->w - two.array[0].w; two.array[1].h = container->h;
-   
-
-
-// damit das mittig ist
-
-            float r1_w_ratio = (float)two.array[0].w / (float)two.array[0].h;
-            float r2_w_ratio = (float)two.array[1].w / (float)two.array[1].h;
-           
-
-          
-
-            if (r1_w_ratio < 0.5 || r2_w_ratio < 0.5) {
-
-         return geo_split(container);
-            }
-
- }
-//horizotal
- else {
-   two.array[0].x = container->x; two.array[0].y = container->y;
-   two.array[0].w = container->w; two.array[0].h = container->h/2 ; //random(1, container->h);
-
-   two.array[1].x = container->x; two.array[1].y = container->y + two.array[0].h;
-   two.array[1].w = container->w ; two.array[1].h = container->h - two.array[0].h;
-
-
-
-            float r1_h_ratio = (float)two.array[0].h / (float)two.array[0].w;
-            float r2_h_ratio = (float)two.array[1].h / (float)two.array[1].w;
-
-            if (r1_h_ratio < 1 || r2_h_ratio < 1) {
-             return geo_split(container);
-            }
-
- }
-
-return two;
-}
-
-
-struct Tree* split_container(struct Container container, int iter)
+static int free_ram()
 {
-
-struct Tree* root;
-root = newLeaf(container);
-
-
-if(iter != 0) {
-
-struct Array2 sr = geo_split(&container);
-
-
-root->lchild = split_container(sr.array[0], iter-1);
-root->rchild = split_container(sr.array[1], iter-1);
-
-
-}
-
-return root;
-
+    int local;
+    return (int)&local - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
 }
 
 
-float VectorDegree(int &x_wall, int &y_wall, int &x2_wall, int &y2_wall) {   
+/* ============================================================================
+ *  2) Map generation
+ * ============================================================================ */
 
-
-//double abcde = atan((y2_wall-y_wall)/(x2_wall-x_wall)) * 180 / PI;
-float angle = atan2(-y2_wall+y_wall, x2_wall-x_wall) * 180 / PI;
-
-
-// keep between 0 - 360;
-angle = angle + ceil( -angle / 360 ) * 360;
-
-return angle;
-
- } 
-
-
-
-
-
-
-struct Tree* printLeafNodes(struct Tree* root, struct Tree* order, int* step) 
-{ 
-
-    // if node is null, return 
-    if (!root) 
-
-        return order;
-      
-    // if node is leaf node, print its data     
-    if (!root->lchild && !root->rchild) 
-    { 
-      root->leaf.order = *step;
-
-
-
-      int xl = root->leaf.x - (root->leaf.w/2); int yl = root->leaf.y + (root->leaf.h /2);
-
-      int xr = (root->leaf.x + root->leaf.w) + (root->leaf.w/2); int yr = root->leaf.y + (root->leaf.h /2);
-
-      int xd = root->leaf.x + (root->leaf.w/2); int yd = root->leaf.y + (root->leaf.h /2);
-
-      int xu = root->leaf.x + (root->leaf.w/2); int yu = root->leaf.y - (root->leaf.h/2);
-
-
-      if(xl > 0 && xl< map_Size && yl > 0 && yl <map_Size)
-      {
-        if(getPosition(xl,yl ,root)->leaf.is_wall == true)
-        {
-            order[*step-1].leaf.on_left = true;
-        }
-      }
-
-      if(xr > 0 && xr< map_Size && yr > 0 && yr <map_Size)
-      {
-        if(getPosition(xr,yr ,root)->leaf.is_wall == true)
-        {
-            order[*step-1].leaf.on_right = true;
-        }
-      }
-
-      if(xd > 0 && xd< map_Size && yd > 0 && yd <map_Size)
-      {
-        if(getPosition(xd,yd ,root)->leaf.is_wall == true)
-        {
-            order[*step-1].leaf.on_down = true;
-        }
-      }
-
-      if(xu > 0 && xu< map_Size && yu > 0 && yu <map_Size)
-      {
-        if(getPosition(xu,yu ,root)->leaf.is_wall == true)
-        {
-            order[*step-1].leaf.on_up = true;
-        }
-      }
-
-
-
-     order[*step-1].leaf = root->leaf;
-
-     order[*step-1].leaf.center.x = order[*step-1].leaf.x + (order[*step-1].leaf.w / 2);
-     order[*step-1].leaf.center.y = order[*step-1].leaf.y + (order[*step-1].leaf.h / 2);
-
-    //give edge x y values
-    //left up corner
-     order[*step-1].leaf.edge_lu.x =  order[*step-1].leaf.x;
-     order[*step-1].leaf.edge_lu.y =  order[*step-1].leaf.y;
-
-      //left down corner
-      order[*step-1].leaf.edge_ld.x =  order[*step-1].leaf.x;
-      order[*step-1].leaf.edge_ld.y =  (order[*step-1].leaf.y + order[*step-1].leaf.h) ;
-
-
-      //right up corner
-      order[*step-1].leaf.edge_ru.x =  (order[*step-1].leaf.x + order[*step-1].leaf.w);
-      order[*step-1].leaf.edge_ru.y =  order[*step-1].leaf.y;
-
-      //right down corner
-      order[*step-1].leaf.edge_rd.x =  (order[*step-1].leaf.x + order[*step-1].leaf.w);
-      order[*step-1].leaf.edge_rd.y =  (order[*step-1].leaf.y + order[*step-1].leaf.h);   
-
-    (*step)++;
-
-        return order;
-    } 
-  
-    // if left child exists, check for leaf  
-    // recursively 
-    if (root->lchild) 
-       printLeafNodes(root->lchild, order, step); 
-          
-    // if right child exists, check for leaf  
-    // recursively 
-    if (root->rchild) 
-       printLeafNodes(root->rchild, order, step); 
-  
-}  
-
-
-//search in which sector the player is standing and return  the node.
-struct Tree* getPosition(int value_x, int value_y, struct Tree *node){
-
-if(node->lchild== NULL && node->rchild == NULL){
-
-return (node);
-
-}
-
-else if(node->lchild->leaf.x <= value_x && (node->lchild->leaf.x + node->lchild->leaf.w) >= value_x && node->lchild->leaf.y <= value_y  && (node->lchild->leaf.y + node->lchild->leaf.h) >= value_y)
+Tree* newLeaf(Container leaf)
 {
-
-return getPosition(value_x, value_y, node->lchild);
-
+    Tree* node = (Tree*)malloc(sizeof(Tree));
+    if (node == NULL) return NULL;
+    node->leaf   = leaf;
+    node->lchild = NULL;
+    node->rchild = NULL;
+    return node;
 }
 
 
-else if(node->rchild->leaf.x <= value_x && (node->rchild->leaf.x + node->rchild->leaf.w) >= value_x && node->rchild->leaf.y <= value_y  && (node->rchild->leaf.y + node->rchild->leaf.h) >= value_y)
+// Split a container into two halves (vertical or horizontal). Iterative,
+// not recursive: thin containers used to make the recursive version blow
+// the stack. Up to 16 randomised attempts, then a forced split.
+Array2 geo_split(Container* container)
 {
-return getPosition(value_x, value_y, node->rchild);
+    Array2 two;
 
-}
-
-
-return NULL;
-
-}
-
-
-
-
-View Save_BSP_Engine(){
-
-View v;
-struct Tree* trees = new struct Tree[v.rooms];
-
-struct Container main_container;
-
-
-main_container.x = 0;
-main_container.y = 0;
-main_container.w = map_Size;
-main_container.h = map_Size;
-
-
-v.Container_map = split_container(main_container,iteration);
-
-int zahl = 1;
-
-v.test = printLeafNodes(v.Container_map, trees, &zahl);
-
-return v;
-
-}
-
-
-
-
-
-//***************************DRAWING*******************************
-
-
-/*
-FILLSEGMENT()
-* this function takes 2 distances and 2 positions on the x_position screen and interpolate it. 
-* if dist_1 is bigger than dist_2 -> step in the for loop will be negativ -> lineHeight will be bigger from x_pos_1 to x_pos_2.
-* x_Buffer is the clipping buffer for not overdrawing behind sector walls
-* y_Buffer and colorBuffer save lineHeight and color from the last frame. When something changes -> just drawing and deleting changed pixels instead drawing every vertical
-*/
-
-void FillSegment(float dist_1, float dist_2, int x_pos_1, int x_pos_2, uint16_t color, Adafruit_SSD1351 tft, BSP_Player P, View V)
-{
-
-  float dist_diff = abs(dist_1 - dist_2); // delta distance
-  int pos_diff = abs(x_pos_1 - x_pos_2); // delta x
-
-  int lineHeight;                      // height on the screen. max. = screenHeight
-  float step = dist_diff/pos_diff;     //interpolating step
-  float for_step = 0;
-
-  if(dist_1 < dist_2){                  
-  
-   step = -step;
-
-  }
-
-  // loop for interpolating between x_pos_1 and x_pos_2 also improve spi speed by only drawing changed pixels instead every whole vertical line
-  for(int x = x_pos_1; x <= x_pos_2; x++) 
-  {
-
-     //lineHeight: between 0 - screenHeight
-    lineHeight = (screenHeight-screenStatistics)- ((screenHeight-screenStatistics) *(dist_1 + for_step)/map_Size);   
-    
-    if(lineHeight <= 0)
+    for (int tries = 0; tries < 16; tries++)
     {
-      lineHeight = 0;
-    }
+        int direction = random(0, 2);
 
-    // when [x] in clipping buffer is not used
-    if(xBuffer[x] == false)
-    {
-
-      // if lineHeight saved before is not the same height
-      if(yBuffer[x] != lineHeight)
-      {
-
-        //if Same color like before
-        if(colorBuffer[x] == color)
+        if (direction == 0)
         {
-          int differenz = yBuffer[x]-lineHeight;
-          int one = ((screenHeight-screenStatistics)- yBuffer[x])/2;
-          int two = ((screenHeight-screenStatistics)-lineHeight)/2;
+            // Vertical split: cut along the X axis.
+            two.array[0].x = container->x;
+            two.array[0].y = container->y;
+            two.array[0].w = container->w / 2;
+            two.array[0].h = container->h;
 
-          //new line is getting smaller. Delete just the unwanted lines above and below the Wall.
-          if(differenz > 0)
-          {
-            tft.drawFastVLine(x, one, two-one, BLACK);                  //above 
-            tft.drawFastVLine(x, (screenHeight-screenStatistics)-two, two-one, BLACK);      //below
-          }
+            two.array[1].x = container->x + two.array[0].w;
+            two.array[1].y = container->y;
+            two.array[1].w = container->w - two.array[0].w;
+            two.array[1].h = container->h;
 
-          // new line is getting bigger. add just the lines above and below symetrical
-          else
-          {
-            tft.drawFastVLine(x, two, one-two, color);
-            int begin_y = (screenHeight-screenStatistics)-two-(one-two)-1;
-            tft.drawFastVLine(x, begin_y, one-two, color);
-          }
+            float r1 = (float)two.array[0].w / (float)two.array[0].h;
+            float r2 = (float)two.array[1].w / (float)two.array[1].h;
+            if (r1 >= 0.5f && r2 >= 0.5f) return two;
         }
-
-        //if another color and not the same lineHeight
         else
         {
-          int start_2 = ((screenHeight-screenStatistics)-lineHeight)/2;
-          tft.drawFastVLine(x,0,(screenHeight-screenStatistics),BLACK);
-          tft.drawFastVLine(x,start_2,lineHeight, color);
-        }
-      }
+            // Horizontal split: cut along the Y axis.
+            two.array[0].x = container->x;
+            two.array[0].y = container->y;
+            two.array[0].w = container->w;
+            two.array[0].h = container->h / 2;
 
-      // if same lineHeight but color changes
-       else
-      {
-        if(colorBuffer[x] != color)
+            two.array[1].x = container->x;
+            two.array[1].y = container->y + two.array[0].h;
+            two.array[1].w = container->w;
+            two.array[1].h = container->h - two.array[0].h;
+
+            float r1 = (float)two.array[0].h / (float)two.array[0].w;
+            float r2 = (float)two.array[1].h / (float)two.array[1].w;
+            if (r1 >= 1.0f && r2 >= 1.0f) return two;
+        }
+    }
+
+    // Fallback: container is too skewed for the ratio constraint. Force
+    // a vertical split. Should not happen with map_Size = 600 and iteration
+    // <= 8, but better to return something valid than to spin forever.
+    two.array[0].x = container->x;
+    two.array[0].y = container->y;
+    two.array[0].w = container->w / 2;
+    two.array[0].h = container->h;
+    two.array[1].x = container->x + two.array[0].w;
+    two.array[1].y = container->y;
+    two.array[1].w = container->w - two.array[0].w;
+    two.array[1].h = container->h;
+    return two;
+}
+
+
+// Recursively split a container `iter` times, building the BSP tree.
+Tree* split_container(Container container, int iter)
+{
+    Tree* root = newLeaf(container);
+    if (root == NULL) return NULL;
+
+    if (iter != 0)
+    {
+        Array2 sr = geo_split(&container);
+        root->lchild = split_container(sr.array[0], iter - 1);
+        root->rchild = split_container(sr.array[1], iter - 1);
+    }
+
+    return root;
+}
+
+
+// Walk the tree in-order and copy every leaf into `order[]`, assigning each
+// a running number 1..rooms. The number is also written back to the tree
+// so getPosition() can produce the same index.
+Tree* printLeafNodes(Tree* root, Tree* order, int* step)
+{
+    if (!root) return order;
+
+    // Leaf?
+    if (!root->lchild && !root->rchild)
+    {
+        root->leaf.order      = *step;
+        order[*step - 1].leaf = root->leaf;
+        (*step)++;
+        return order;
+    }
+
+    if (root->lchild) printLeafNodes(root->lchild, order, step);
+    if (root->rchild) printLeafNodes(root->rchild, order, step);
+
+    return order;
+}
+
+
+/* ============================================================================
+ *  3) Geometry: world-angle from one point to another
+ * ============================================================================ */
+
+// Returns the angle of the vector (x_wall, y_wall) -> (x2_wall, y2_wall) in
+// degrees, normalised to [0, 360). The Y axis is flipped (atan2 of -dy)
+// because the screen has +Y pointing down. With this convention:
+//      0 deg   = +X  (east)
+//      90 deg  = -Y  (screen up)
+//      180 deg = -X  (west)
+//      270 deg = +Y  (screen down)
+float VectorDegree(int& x_wall, int& y_wall, int& x2_wall, int& y2_wall)
+{
+    float angle = atan2(-y2_wall + y_wall, x2_wall - x_wall) * 180.0f / PI;
+    angle = angle + ceil(-angle / 360.0f) * 360.0f;     // wrap into [0, 360)
+    return angle;
+}
+
+
+/* ============================================================================
+ *  4) Spatial query
+ * ============================================================================ */
+
+// Find the leaf node whose AABB contains (value_x, value_y). Recursive
+// descent of the BSP tree.
+Tree* getPosition(int value_x, int value_y, Tree* node)
+{
+    if (node->lchild == NULL && node->rchild == NULL)
+        return node;
+
+    if (node->lchild != NULL &&
+        node->lchild->leaf.x <= value_x &&
+        (node->lchild->leaf.x + node->lchild->leaf.w) >= value_x &&
+        node->lchild->leaf.y <= value_y &&
+        (node->lchild->leaf.y + node->lchild->leaf.h) >= value_y)
+    {
+        return getPosition(value_x, value_y, node->lchild);
+    }
+
+    if (node->rchild != NULL &&
+        node->rchild->leaf.x <= value_x &&
+        (node->rchild->leaf.x + node->rchild->leaf.w) >= value_x &&
+        node->rchild->leaf.y <= value_y &&
+        (node->rchild->leaf.y + node->rchild->leaf.h) >= value_y)
+    {
+        return getPosition(value_x, value_y, node->rchild);
+    }
+
+    return NULL;
+}
+
+
+/* ============================================================================
+ *  5) Build entry point
+ * ============================================================================ */
+
+View Save_BSP_Engine()
+{
+    View v;
+
+    Serial.print(F("[BSP] iteration="));    Serial.print(iteration);
+    Serial.print(F(" rooms="));             Serial.print(v.rooms);
+    Serial.print(F(" sizeof(Tree)="));      Serial.print((int)sizeof(Tree));
+    Serial.print(F(" freeRAM_pre="));       Serial.println(free_ram());
+
+    Tree* leaves = new Tree[v.rooms];
+
+    if (leaves == NULL)
+    {
+        Serial.println(F("[BSP] ERROR: 'new Tree[rooms]' returned NULL - out of RAM."));
+        v.test          = NULL;
+        v.Container_map = NULL;
+        return v;
+    }
+
+    Container root_container;
+    root_container.x = 0;
+    root_container.y = 0;
+    root_container.w = map_Size;
+    root_container.h = map_Size;
+
+    v.Container_map = split_container(root_container, iteration);
+
+    if (v.Container_map == NULL)
+    {
+        Serial.println(F("[BSP] ERROR: split_container returned NULL - out of RAM."));
+        delete[] leaves;
+        v.test = NULL;
+        return v;
+    }
+
+    int step = 1;
+    v.test = printLeafNodes(v.Container_map, leaves, &step);
+
+    Serial.print(F("[BSP] freeRAM_post=")); Serial.println(free_ram());
+    return v;
+}
+
+
+/* ============================================================================
+ *  6) Renderer
+ * ============================================================================ */
+
+
+/* ----- 6a) FillSegment --------------------------------------------------
+ *
+ * Writes one wall column strip to the display.
+ *
+ * Inputs:
+ *      dist_1, dist_2     perpendicular depth at each screen X endpoint
+ *      x_pos_1, x_pos_2   screen X of each endpoint
+ *
+ * For every column from min(x_pos) to max(x_pos):
+ *      lineHeight = WALL_PROJ_SCALE / depth          (perspective-correct)
+ *      depth interpolated linearly in 1/depth        (NOT in depth itself,
+ *                                                      that would warp)
+ * ---------------------------------------------------------------------- */
+void FillSegment(float dist_1, float dist_2,
+                 int x_pos_1, int x_pos_2,
+                 uint16_t color,
+                 Adafruit_SSD1351 tft, BSP_Player P, View V)
+{
+    // Endpoints can arrive in either screen-X order. Without swapping the
+    // for-loop below would run zero times -> visible gap on the wall.
+    if (x_pos_1 > x_pos_2)
+    {
+        int   tx = x_pos_1; x_pos_1 = x_pos_2; x_pos_2 = tx;
+        float td = dist_1;  dist_1  = dist_2;  dist_2  = td;
+    }
+
+    int pos_diff = x_pos_2 - x_pos_1;
+    if (pos_diff == 0) pos_diff = 1;        // 1-column wall, avoid div by zero
+
+    // Clamp depth to >= 1 so 1/depth never blows up. With near-plane clipping
+    // in DrawSegment, depths are already >= NEAR_PLANE_DEPTH; this is the
+    // last safety net.
+    const float minD = 1.0f;
+    float inv_d_1 = 1.0f / (dist_1 < minD ? minD : dist_1);
+    float inv_d_2 = 1.0f / (dist_2 < minD ? minD : dist_2);
+
+    float inv_step = (inv_d_2 - inv_d_1) / (float)pos_diff;
+    float inv_d    = inv_d_1;
+
+    const int screenH = (int)(screenHeight - screenStatistics);
+
+    for (int x = x_pos_1; x <= x_pos_2; x++)
+    {
+        int lineHeight = (int)(WALL_PROJ_SCALE * inv_d);
+        if (lineHeight > screenH) lineHeight = screenH;
+        if (lineHeight < 0)       lineHeight = 0;
+
+        // xBuffer occlusion: if a closer wall already filled this column,
+        // skip. This is the per-column z-buffer used by Doom.
+        if (xBuffer[x] == false)
         {
-          int start_3 = ((screenHeight-screenStatistics)-lineHeight)/2;
-          tft.drawFastVLine(x,start_3,lineHeight,color);
+            // -- Delta redraw -- only push to SPI when something actually
+            // changed since last frame. Big speedup at low rotation rates.
+            //
+            // Walls are centered vertically: top = (screenH - lineHeight)/2,
+            // bottom = top + lineHeight. The strip above the wall is the
+            // sky region; the strip below is the floor region.
+            if (yBuffer[x] != lineHeight)
+            {
+                if (colorBuffer[x] == color)
+                {
+                    // Same color, only height changed: paint the difference.
+                    int delta   = yBuffer[x] - lineHeight;
+                    int top_old = (screenH - yBuffer[x])  / 2;
+                    int top_new = (screenH - lineHeight)  / 2;
+
+                    if (delta > 0)
+                    {
+                        // Wall got smaller -> reveal sky/floor strips.
+                        // Above-wall strip is fully in the sky region;
+                        // below-wall strip is fully in the floor region
+                        // (walls are centered around screenH/2).
+#if ENABLE_FLOOR_AND_SKY
+                        tft.drawFastVLine(x, top_old,           top_new - top_old, SKY_COLOR);
+                        tft.drawFastVLine(x, screenH - top_new, top_new - top_old, FLOOR_COLOR);
+#else
+                        tft.drawFastVLine(x, top_old,           top_new - top_old, BLACK);
+                        tft.drawFastVLine(x, screenH - top_new, top_new - top_old, BLACK);
+#endif
+                    }
+                    else
+                    {
+                        // Wall got bigger -> paint wall over the revealed strips.
+                        tft.drawFastVLine(x, top_new, top_old - top_new, color);
+                        int begin_y = screenH - top_new - (top_old - top_new) - 1;
+                        tft.drawFastVLine(x, begin_y, top_old - top_new, color);
+                    }
+                }
+                else
+                {
+                    // Different color and different height -> repaint the
+                    // entire column: sky on top, wall in the middle, floor
+                    // on the bottom.
+                    int top    = (screenH - lineHeight) / 2;
+                    int bottom = top + lineHeight;
+
+                    paint_background_strip(tft, x, 0,      top);
+                    tft.drawFastVLine(x, top, lineHeight, color);
+                    paint_background_strip(tft, x, bottom, screenH - bottom);
+                }
+            }
+            else if (colorBuffer[x] != color)
+            {
+                // Same height, just a color change. Wall area only.
+                int top = (screenH - lineHeight) / 2;
+                tft.drawFastVLine(x, top, lineHeight, color);
+            }
+
+            yBuffer[x]     = lineHeight;
+            colorBuffer[x] = color;
+            xBuffer[x]     = true;
         }
-      }
 
-      // save actual lineHeight and color in yBuffer and colorBuffer
-      yBuffer[x] = lineHeight;
-      colorBuffer[x] = color;
-
-      // if vertical line is drawn -> save in the clipping buffer for not overdrawing at another sector
-      
-      xBuffer[x]= true;
+        inv_d += inv_step;
     }
-
-      // interpolating step 
-      for_step = for_step - step;
-  }
-
 }
 
 
+/* ----- 6b) DrawSegment --------------------------------------------------
+ *
+ * Projects a wall edge (two world points) into screen space and hands the
+ * result to FillSegment. The pipeline:
+ *
+ *   1) Transform endpoints into camera space.
+ *           forward = ( cos(angle), -sin(angle) )       (Y axis is screen-flipped)
+ *           right   = ( sin(angle),  cos(angle) )
+ *           depth   = v . forward
+ *           lateral = v . right
+ *
+ *   2) Clip the segment against three half-spaces (Sutherland-Hodgman).
+ *           - near plane    :  depth >= NEAR_PLANE_DEPTH
+ *           - right FOV ray :  depth * tan(FOV/2) - lat >= 0
+ *           - left  FOV ray :  depth * tan(FOV/2) + lat >= 0
+ *      If the segment is fully outside any plane, skip the wall.
+ *      Otherwise endpoints outside the plane are linearly interpolated to
+ *      the plane.
+ *
+ *   3) Project the (now in-FOV, in-front-of-camera) endpoints to screen X:
+ *           screen_x = w/2 + (lateral / depth) / tan(FOV/2) * (w/2)
+ *
+ *   4) Hand off to FillSegment.
+ *
+ * Why a full FOV clip and not just a near-plane clip:
+ *   With only a near-plane clip, walls that extend past the side of the
+ *   FOV got pulled forward to depth = NEAR_PLANE = 1, which then projected
+ *   to the screen edge with line height SCALE / 1 = full screen. Walls
+ *   along the side appeared "in your face" and their height collapsed to
+ *   the actual wall depth only well inside the screen, giving the
+ *   "wall stretched into the middle" look.
+ *
+ *   FOV-cone clipping puts the side endpoint exactly where the wall
+ *   crosses the FOV ray, so the line height at the screen edge is the
+ *   correct depth at that ray, not 1.
+ * ---------------------------------------------------------------------- */
 
-
-/*
-DRAWSEGMENT()
-* this function takes 2 edges coordinates 
-* angle_1, angle_2 (worldangle from player to edges) are always between 0-360°
-* it calculate distance from player to edges
-* when comparing the angles with player´s left and right max. Angle we can say whether a edge is in the FOV and where it is on x_screen position 
-* we are using virtual angle to ensure error-free calculation. Because angle_1 is always bigger than angle_2. it would be a problem when player facing 360° or 0°
-* it calls the fillSegment function, which is drawing on the screen
-*/
-
-void DrawSegment(xy* edge1, xy* edge2, uint16_t color, Adafruit_SSD1351 tft, BSP_Player P, View V)
+// Clip a wall segment in (depth, lat) camera space against one half-space.
+//   inside region  =  { (d, l) : A*d + B*l + C >= 0 }
+// Returns false if the segment is entirely outside (caller should skip the
+// wall). Endpoints outside the half-space are linearly moved onto the plane.
+static bool clip_plane(float& d1, float& l1,
+                       float& d2, float& l2,
+                       float A, float B, float C)
 {
-
-  float angle_1 = VectorDegree( P.player_px, P.player_py, edge1->x, edge1->y);
-  float angle_2 = VectorDegree(P.player_px, P.player_py, edge2->x, edge2->y); 
-
-
-  float backup_Angle_1 = angle_1;
-  float backup_Angle_2 = angle_2;
-
-
-  float diff_winkel =  PI-(V.playerAngle); // 180 - 270  //unten statt backup +diffwinkel-PI******
-
-  float virtual_angle = V.playerAngle + diff_winkel;   //immer 180 grad
-
-
-  angle_1 = angle_1 + (diff_winkel*180/PI);
-  angle_2 = angle_2 + (diff_winkel*180/PI);
-
-  //always between 0 - 360
-  angle_1 = fmodf(angle_1, 360);    
-      if (angle_1< 0)
-          angle_1 += 360;
-
-          angle_2 = fmodf(angle_2, 360);
-      if (angle_2< 0)
-          angle_2 += 360;
-
-
-  V.playerAngle_left = (virtual_angle + (PI/4)) * 180/PI;
-  V.playerAngle_right = (virtual_angle - (PI/4)) * 180/PI;
-
-
-  // pos_1 is the first and left point of the x_screen_position, pos_2 is right point_position of the x_screen
-  int pos_1_x;
-  int pos_2_x;
-
-
-// angle_1 is in the FOV
-if(angle_1 <= V.playerAngle_left && angle_1 >= V.playerAngle_right )
-{
-
-  // 0 - screenWidth  depends on (playerAngle_left - angle_1)
-  pos_1_x = (screenWidth-1) * (V.playerAngle_left-angle_1 )/ (V.FOV*180/PI);  // position on the screen from 0 - screenWidth
-
-  float Distance_1;
-
-
-  int VectorX_1 = edge1->x - P.player_px; // vector_x
-  int VectorY_1 = edge1->y - P.player_py; // vector_y
-
-
-  Distance_1 = sqrt(VectorX_1*VectorX_1 + (VectorY_1*VectorY_1))*cos(V.playerAngle-(backup_Angle_1*PI/180));  // lenght of the vector
-
-
-  // angle_2 is also in the FOV
-  if(angle_2 >= V.playerAngle_right){
-
-    pos_2_x = (screenWidth-1) * (V.playerAngle_left-angle_2 )/ (V.FOV*180/PI);
-
-    float Distance_2;
-
-
-    int VectorX_2 = edge2->x - P.player_px;
-    int VectorY_2 =  edge2->y - P.player_py;
-
-
-    Distance_2 = sqrt(VectorX_2*VectorX_2 + (VectorY_2*VectorY_2))*cos(V.playerAngle-(backup_Angle_2*PI/180)); // länge des Vektors  //*************wichtig
-
-
-    FillSegment(Distance_1, Distance_2, pos_1_x, pos_2_x, color, tft, P, V);
-
- 
-  }
-
-  // else not in the FOV
-  if(angle_2 < V.playerAngle_right){
-
-    
-    float Distance_2;
-
-    // right outside from screen -> pos_2_x set on screenwidth
-    pos_2_x = (screenWidth-1);
-
-
-
-    int VectorX_2 = edge2->x - P.player_px;
-    int VectorY_2 =  edge2->y - P.player_py;
-
-
-    Distance_2 = abs(sqrt(VectorX_2*VectorX_2 + (VectorY_2*VectorY_2))*cos(V.playerAngle-(backup_Angle_2*PI/180))); // länge des Vektors  //*************wichtig
-
-
-
-    FillSegment(Distance_1, Distance_2, pos_1_x, pos_2_x, color, tft, P, V);
-
-
-  }
-}
-
-
-// angle_ 1 is left outside from playerAngle_left 
-else if(angle_1 > V.playerAngle_left )
-{
-
-    // left outside from screen -> set to 0
-    pos_1_x = 0;
-    float Distance_1;
-
-
-
-    int VectorX_1 = edge1->x - P.player_px;
-    int VectorY_1 =  edge1->y - P.player_py;
-
-
-
-    Distance_1 = abs(sqrt(VectorX_1*VectorX_1 + (VectorY_1*VectorY_1))*cos(V.playerAngle-(backup_Angle_1*PI/180)));  // länge des Vektors
-
-  // angle_2 in the FOV
-  if(angle_2 >= V.playerAngle_right){
-
-    float Distance_2;
-
-    pos_2_x = (screenWidth-1) * (V.playerAngle_left-angle_2 )/ (V.FOV*180/PI);
-
-     
-
-    int VectorX_2 = edge2->x - P.player_px;
-    int VectorY_2 =  edge2->y - P.player_py;
-
-
-    Distance_2 = sqrt(VectorX_2*VectorX_2 + (VectorY_2*VectorY_2))*cos(V.playerAngle-(backup_Angle_2*PI/180)); // länge des Vektors  //*************wichtig
-
-
-    FillSegment(Distance_1, Distance_2, pos_1_x, pos_2_x, color, tft, P, V);
-
-
-  }
-    // angle_2 right outside from playerAngle_right
-    if(angle_2 < V.playerAngle_right){
-
-       float Distance_2;
-
-
-    pos_2_x = (screenWidth-1);// * (playerAngle_left-angle_2 )/ (FOV*180/PI);
-
-
-    int VectorX_2 = edge2->x - P.player_px;
-    int VectorY_2 =  edge2->y - P.player_py;
-
-
-    Distance_2 = sqrt(VectorX_2*VectorX_2 + (VectorY_2*VectorY_2))*cos(V.playerAngle-(backup_Angle_2*PI/180)); // länge des Vektors  //*************wichtig
-
-
-    FillSegment(Distance_1, Distance_2, pos_1_x, pos_2_x, color, tft, P, V);
-
-  }
- } 
-}
-
-
-
-
-
-/*
-DRAWSEGMENT()
-* this function takes Binary tree 
-* checks whether this node includes a wall
-* if: check which sides of a square are relevant from the player position
-* this edges are going to the function DrawSegment
-*/
-
-void DrawWall(struct Tree* wall, Adafruit_SSD1351 tft, BSP_Player P, View V)
-{
-
-  //it`s a wall
-  if(wall->leaf.is_wall == true)
-  {
-  
-    if( P.player_px <= wall->leaf.x)
+    float s1 = A * d1 + B * l1 + C;
+    float s2 = A * d2 + B * l2 + C;
+    if (s1 < 0 && s2 < 0) return false;
+    if (s1 < 0)
     {
+        float t = s1 / (s1 - s2);
+        d1 += t * (d2 - d1);
+        l1 += t * (l2 - l1);
+    }
+    else if (s2 < 0)
+    {
+        float t = s2 / (s2 - s1);
+        d2 += t * (d1 - d2);
+        l2 += t * (l1 - l2);
+    }
+    return true;
+}
 
-      //position:      [WAll]
-      //           *P
 
-      if( P.player_py > (wall->leaf.y + wall->leaf.h))
-      {
+void DrawSegment(xy edge1, xy edge2,
+                 uint16_t color,
+                 Adafruit_SSD1351 tft, BSP_Player P, View V)
+{
+    // (1) world -> camera space.
+    float vx1 = (float)edge1.x - (float)P.player_px;
+    float vy1 = (float)edge1.y - (float)P.player_py;
+    float vx2 = (float)edge2.x - (float)P.player_px;
+    float vy2 = (float)edge2.y - (float)P.player_py;
 
-        if(wall->leaf.on_left == false)
-          {
-            DrawSegment(&wall->leaf.edge_lu, &wall->leaf.edge_ld, wall->leaf.color, tft, P, V);
-          }
+    float fx =  cosf(V.playerAngle);
+    float fy = -sinf(V.playerAngle);
+    float rx =  sinf(V.playerAngle);
+    float ry =  cosf(V.playerAngle);
 
-        if(wall->leaf.on_down == false)
+    float depth1 = vx1 * fx + vy1 * fy;
+    float lat1   = vx1 * rx + vy1 * ry;
+    float depth2 = vx2 * fx + vy2 * fy;
+    float lat2   = vx2 * rx + vy2 * ry;
+
+    // (2) clip against the three planes of the camera frustum.
+    const float tan_half = tanf(V.FOV * 0.5f);
+
+    // near plane:  depth - NEAR_PLANE_DEPTH >= 0
+    if (!clip_plane(depth1, lat1, depth2, lat2, 1.0f, 0.0f, -NEAR_PLANE_DEPTH))
+        return;
+
+    // right FOV: depth*tan_half - lat >= 0  (lat <= +tan_half * depth)
+    if (!clip_plane(depth1, lat1, depth2, lat2, tan_half, -1.0f, 0.0f))
+        return;
+
+    // left  FOV: depth*tan_half + lat >= 0  (lat >= -tan_half * depth)
+    if (!clip_plane(depth1, lat1, depth2, lat2, tan_half, 1.0f, 0.0f))
+        return;
+
+    // (3) project to screen X.
+    const float halfW = (float)screenWidth * 0.5f;
+    const float invTanHalfF = 1.0f / tan_half;
+
+    int pos1 = (int)(halfW + (lat1 / depth1) * halfW * invTanHalfF);
+    int pos2 = (int)(halfW + (lat2 / depth2) * halfW * invTanHalfF);
+
+    // Defensive clamp - after clipping these should already be in range,
+    // but float rounding can bite at the FOV edge.
+    if (pos1 < 0)               pos1 = 0;
+    if (pos1 > screenWidth - 1) pos1 = screenWidth - 1;
+    if (pos2 < 0)               pos2 = 0;
+    if (pos2 > screenWidth - 1) pos2 = screenWidth - 1;
+
+    // (4) draw.
+    FillSegment(depth1, depth2, pos1, pos2, color, tft, P, V);
+}
+
+
+/* ----- 6c) DrawWall -----------------------------------------------------
+ *
+ * For a single BSP leaf containing a wall, work out which 1-2 sides face
+ * the player and draw them. There are 8 octant cases; the layout below
+ * mirrors them in code order.
+ * ---------------------------------------------------------------------- */
+void DrawWall(Tree* wall, Adafruit_SSD1351 tft, BSP_Player P, View V)
+{
+    if (!wall->leaf.is_wall) return;
+
+    const Container& W = wall->leaf;
+
+    if (P.player_px <= W.x)
+    {
+        // Player is to the LEFT of the wall.
+
+        if (P.player_py > (W.y + W.h))
         {
-            DrawSegment(&wall->leaf.edge_ld, &wall->leaf.edge_rd, wall->leaf.color, tft, P, V);
+            // Player is below-left  -> see LEFT face + BOTTOM face.
+            DrawSegment(edge_lu(W), edge_ld(W), W.color, tft, P, V);
+            DrawSegment(edge_ld(W), edge_rd(W), W.color, tft, P, V);
         }
-          
-      }
-
-      //           *P
-      //position:      [Wall]
-              
-      else if( P.player_py < wall->leaf.y )
-      {
-
-         if(wall->leaf.on_left == false)
-         {
-            DrawSegment(&wall->leaf.edge_lu, &wall->leaf.edge_ld, wall->leaf.color, tft, P, V);
-         }
-         if(wall->leaf.on_up == false)
-         {
-          DrawSegment(&wall->leaf.edge_ru, &wall->leaf.edge_lu, wall->leaf.color, tft, P, V);
-         }
-        
-      }
-
-      //position:    *P  [Wall]
-      else 
-      {    
-
-       DrawSegment(&wall->leaf.edge_lu, &wall->leaf.edge_ld, wall->leaf.color, tft, P, V);
-
-      }
-
+        else if (P.player_py < W.y)
+        {
+            // Player is above-left  -> see LEFT face + TOP face.
+            DrawSegment(edge_lu(W), edge_ld(W), W.color, tft, P, V);
+            DrawSegment(edge_ru(W), edge_lu(W), W.color, tft, P, V);
+        }
+        else
+        {
+            // Player is due-left    -> see LEFT face only.
+            DrawSegment(edge_lu(W), edge_ld(W), W.color, tft, P, V);
+        }
     }
-
-
-    else if( P.player_px> (wall->leaf.x + wall->leaf.w))
+    else if (P.player_px > (W.x + W.w))
     {
+        // Player is to the RIGHT of the wall.
 
-      //position:      [WAll]
-      //                        *P
-      if( P.player_py > (wall->leaf.y + wall->leaf.h))
-      {
-
-         if(wall->leaf.on_right == false)
-         {
-          DrawSegment(&wall->leaf.edge_rd, &wall->leaf.edge_ru, wall->leaf.color, tft, P, V);
-         }
-
-         if(wall->leaf.on_down == false)
-         {
-          DrawSegment(&wall->leaf.edge_ld, &wall->leaf.edge_rd,  wall->leaf.color, tft, P, V);
-         }
-      }
-
-      //                          *P
-      //position:      [WAll]
-
-      else if( P.player_py <  wall->leaf.y)
-      {
-
-          if(wall->leaf.on_right == false)
-          {
-          DrawSegment(&wall->leaf.edge_rd, &wall->leaf.edge_ru, wall->leaf.color, tft, P, V);
-          }
-
-          if(wall->leaf.on_up == false)
-          {
-          DrawSegment(&wall->leaf.edge_ru, &wall->leaf.edge_lu,  wall->leaf.color, tft, P, V);
-          }
-      }
-
-      //position:      [WAll]    *P
-
-      else 
-      {
-
-       DrawSegment(&wall->leaf.edge_rd, &wall->leaf.edge_ru, wall->leaf.color, tft, P, V);
-       
-      }
-
+        if (P.player_py > (W.y + W.h))
+        {
+            // Player is below-right -> see RIGHT face + BOTTOM face.
+            DrawSegment(edge_rd(W), edge_ru(W), W.color, tft, P, V);
+            DrawSegment(edge_ld(W), edge_rd(W), W.color, tft, P, V);
+        }
+        else if (P.player_py < W.y)
+        {
+            // Player is above-right -> see RIGHT face + TOP face.
+            DrawSegment(edge_rd(W), edge_ru(W), W.color, tft, P, V);
+            DrawSegment(edge_ru(W), edge_lu(W), W.color, tft, P, V);
+        }
+        else
+        {
+            // Player is due-right   -> see RIGHT face only.
+            DrawSegment(edge_rd(W), edge_ru(W), W.color, tft, P, V);
+        }
     }
-
-
-    else if( P.player_px >= wall->leaf.x &&  P.player_px <= (wall->leaf.x + wall->leaf.w))
+    else
     {
+        // Player's X is between the wall's X edges.
 
-      //                 *P
-      //position:      [WAll]
-      if( P.player_py <= wall->leaf.y)
-      {
-        
-       DrawSegment(&wall->leaf.edge_ru, &wall->leaf.edge_lu,  wall->leaf.color, tft, P, V);
-
-      }
-   
-      //position:      [WAll]
-      //                 *P
-
-      else if( P.player_py >= (wall->leaf.y + wall->leaf.h)) 
-      {
-        
-        DrawSegment(&wall->leaf.edge_ld, &wall->leaf.edge_rd, wall->leaf.color, tft, P, V);
-      
-      }
+        if (P.player_py <= W.y)
+        {
+            // Player is straight ABOVE -> see TOP face.
+            DrawSegment(edge_ru(W), edge_lu(W), W.color, tft, P, V);
+        }
+        else if (P.player_py >= (W.y + W.h))
+        {
+            // Player is straight BELOW -> see BOTTOM face.
+            DrawSegment(edge_ld(W), edge_rd(W), W.color, tft, P, V);
+        }
+        // else: player is INSIDE the wall sector. Should not happen with
+        // PLAYER_RADIUS collision; if it does, draw nothing rather than
+        // guessing which face is "outside".
     }
-  }
-
-  // its not a wall
-  else if(wall->leaf.is_wall == false)
-  {
-
-  }
 }
 
 
-/*
-FIELDOFVIEW2ANGLE()
-* its called every frame 
-* update playerAngle_left and playerAngle_right
-* playerAngle -> 0 - 360
-*/
-
-void FieldOfView2Angle(View V)
+/* ----- 6d) RenderBSP ----------------------------------------------------
+ *
+ * True Doom-style front-to-back BSP traversal. At every inner node:
+ *      same X -> horizontal split (Y-axis)
+ *      same Y -> vertical split   (X-axis)
+ * Render the side the player is on first, then the far side. Combined
+ * with the per-column xBuffer, this gives correct visibility without
+ * any explicit depth sorting.
+ *
+ * IMPORTANT: at a leaf we look up the wall data in V.test (the flat
+ * leaves array), not in Container_map - that's where the random walls
+ * were written by Game_start.
+ * ---------------------------------------------------------------------- */
+void RenderBSP(Tree* node, Adafruit_SSD1351 tft, BSP_Player P, View V)
 {
-  // playerAngle always between 0 - 360
-  V.playerAngle = fmodf(V.playerAngle, 2*PI);
+    if (node == NULL) return;
 
-    if (V.playerAngle < 0)
-        V.playerAngle+= 2*PI;
-  
-    
-  V.playerAngle_left = (V.playerAngle + (V.FOV / 2) ) * 180 / PI;     // playerAngle_left = playerAngle + (FOV/2)
-  V.playerAngle_right = (V.playerAngle - (V.FOV / 2) ) * 180 / PI;   // playerAngle_right = playerAngle_left - FOV; 
-    
-}
-
-
-
-//from nearest to fartest wall, abh. from postion of the player
- void PrintCloseToFar(struct Tree* AT, int start, Adafruit_SSD1351 tft, BSP_Player P, View V ){
-
-   int index = start-1;
-
-   int a =  V.rooms;
-
-   int j = index +1;
-
-//erste Schritt nach rechts
-   while(j < a || index >= 0)
-   {
-
-    if (index >= 0){
-
-    DrawWall(&AT[index], tft, P, V);
-}
-
-    if (j < a) 
+    if (node->lchild == NULL && node->rchild == NULL)
     {
-            
-        DrawWall(&AT[j], tft, P, V);
+        int idx = node->leaf.order - 1;
+        if (idx >= 0 && idx < V.rooms) DrawWall(&V.test[idx], tft, P, V);
+        return;
     }
 
-    index--;
-    j++; 
-    
-   }
+    Tree* L = node->lchild;
+    Tree* R = node->rchild;
+
+    if (L == NULL || R == NULL)
+    {
+        if (L != NULL) RenderBSP(L, tft, P, V);
+        if (R != NULL) RenderBSP(R, tft, P, V);
+        return;
+    }
+
+    bool nearIsLeft;
+    if (L->leaf.x != R->leaf.x)
+        nearIsLeft = (P.player_px < R->leaf.x);   // vertical split at x = R.x
+    else
+        nearIsLeft = (P.player_py < R->leaf.y);   // horizontal split at y = R.y
+
+    if (nearIsLeft)
+    {
+        RenderBSP(L, tft, P, V);   // near side first
+        RenderBSP(R, tft, P, V);   // far side, occluded by xBuffer
+    }
+    else
+    {
+        RenderBSP(R, tft, P, V);
+        RenderBSP(L, tft, P, V);
+    }
 }
 
 
+/* ============================================================================
+ *  7) View helpers
+ * ============================================================================ */
+
+void FieldOfView2Angle(View& V)
+{
+    V.playerAngle = fmodf(V.playerAngle, 2.0f * PI);
+    if (V.playerAngle < 0) V.playerAngle += 2.0f * PI;
+}
 
 
+/* ============================================================================
+ *  8) Background painting (sky / floor)
+ * ============================================================================ */
+
+void paint_background_strip(Adafruit_SSD1351 tft, int x, int y, int h)
+{
+    if (h <= 0) return;
+
+#if ENABLE_FLOOR_AND_SKY
+    const int mid    = screenHeight / 2;
+    const int bottom = y + h;
+
+    if (bottom <= mid)
+    {
+        tft.drawFastVLine(x, y, h, SKY_COLOR);
+    }
+    else if (y >= mid)
+    {
+        tft.drawFastVLine(x, y, h, FLOOR_COLOR);
+    }
+    else
+    {
+        // Strip straddles the horizon: paint two sub-strips.
+        tft.drawFastVLine(x, y,    mid - y,      SKY_COLOR);
+        tft.drawFastVLine(x, mid,  bottom - mid, FLOOR_COLOR);
+    }
+#else
+    tft.drawFastVLine(x, y, h, BLACK);
+#endif
+}
 
 
-
-
-
-
-
-
-
-
-
-
-
-
+void paint_full_background(Adafruit_SSD1351 tft)
+{
+#if ENABLE_FLOOR_AND_SKY
+    const int mid = screenHeight / 2;
+    tft.fillRect(0, 0,   screenWidth, mid,                 SKY_COLOR);
+    tft.fillRect(0, mid, screenWidth, screenHeight - mid,  FLOOR_COLOR);
+#else
+    tft.fillScreen(BLACK);
+#endif
+}

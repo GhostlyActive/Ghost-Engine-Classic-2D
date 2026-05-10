@@ -1,463 +1,253 @@
 #include "Game.h"
-#include "Controlls.h"
+#include "Menu.h"
+#include "Controls.h"
 
 
+/* ============================================================================
+ *  Game.cpp
+ *
+ *  Glue between the BSP renderer (BSP_Engine) and the input / world logic.
+ *  All tunable numbers live in BSP_Settings.h.
+ *
+ *  Frame loop:
+ *      Serial_poll()           // drain Serial -> one-shot flags
+ *      FieldOfView2Angle(V)    // wrap player angle into [0, 2*PI)
+ *      RenderBSP()             // draw the world for this frame
+ *      column cleanup          // erase stale columns
+ *      input -> movement       // hold-poll buttons + Serial keystrokes
+ * ============================================================================ */
+
+
+/* ----- Wall palette ------------------------------------------------------ */
+
+static const uint16_t WALL_COLORS[] = { RED, GREEN, BLUE, YELLOW, CYAN, MAGENTA };
+static const int      NUM_WALL_COLORS = sizeof(WALL_COLORS) / sizeof(WALL_COLORS[0]);
+
+
+/* ----- Wall lookup ------------------------------------------------------- */
+//
+// V.Container_map (the BSP tree) and V.test (the flat leaf array) hold
+// separate copies of each leaf. Wall flags are kept in V.test, so any
+// collision or wall query must use the tree to locate the sector and then
+// jump into V.test via the 'order' index.
+static bool sector_is_wall_at(int x, int y, View& V)
+{
+    Tree* sect = getPosition(x, y, V.Container_map);
+    if (sect == NULL) return true;          // out of bounds -> treat as wall
+
+    int idx = sect->leaf.order - 1;
+    if (idx < 0 || idx >= V.rooms) return true;
+
+    return V.test[idx].leaf.is_wall;
+}
+
+
+// Player has a non-zero collision radius. The proposed center is rejected
+// if either the center itself or any of the four cardinal points at
+// +/- PLAYER_RADIUS lies inside a wall sector. This keeps the camera at
+// least PLAYER_RADIUS units away from any wall face -> no "glued to the
+// wall" perspective and no clipping through corners.
+static bool player_blocked(int x, int y, View& V)
+{
+    if (sector_is_wall_at(x,                    y,                    V)) return true;
+    if (sector_is_wall_at(x + PLAYER_RADIUS,    y,                    V)) return true;
+    if (sector_is_wall_at(x - PLAYER_RADIUS,    y,                    V)) return true;
+    if (sector_is_wall_at(x,                    y + PLAYER_RADIUS,    V)) return true;
+    if (sector_is_wall_at(x,                    y - PLAYER_RADIUS,    V)) return true;
+    return false;
+}
+
+
+// Try to move the player to (new_x, new_y). If blocked, slide along the
+// blocking axis (move just X or just Y). If everything is blocked, stay put.
+// This is the classic AABB slide collision response and prevents the
+// "stuck in a corner" feeling on diagonal motion.
+static void try_move(BSP_Player& P, View& V, int new_x, int new_y)
+{
+    if (!player_blocked(new_x, new_y, V))
+    {
+        P.player_px = new_x;
+        P.player_py = new_y;
+    }
+    else if (!player_blocked(new_x, P.player_py, V))
+    {
+        P.player_px = new_x;
+    }
+    else if (!player_blocked(P.player_px, new_y, V))
+    {
+        P.player_py = new_y;
+    }
+}
+
+
+/* ----- "Out of RAM" screen ----------------------------------------------- */
+
+static void out_of_ram_screen(Adafruit_SSD1351 tft)
+{
+    tft.fillScreen(BLACK);
+    tft.drawRect(0, 0, screenWidth, screenHeight, RED);
+    tft.setTextColor(RED);
+    tft.setTextSize(2);
+    tft.setCursor(8, (screenHeight / 2) - 20);
+    tft.println("OUT OF");
+    tft.setCursor(40, (screenHeight / 2));
+    tft.println("RAM");
+    tft.setTextColor(YELLOW);
+    tft.setTextSize(1);
+    tft.setCursor(8, (screenHeight / 2) + 25);
+    tft.print("iteration=");
+    tft.println(iteration);
+    delay(2500);
+}
+
+
+/* ----- Game start: build world + place player ---------------------------- */
 
 void Game_start(Adafruit_SSD1351 tft)
 {
-    BSPEditor editor;
     View V = Save_BSP_Engine();
-    editor.Load_BSP_Editor(tft, V.test, V);
+
+    if (V.test == NULL || V.Container_map == NULL)
+    {
+        out_of_ram_screen(tft);
+        buildMenu menu;
+        menu.ShowMenu(tft);
+        return;
+    }
+
+    BSP_Player P;
+
+    // Pick the spawn sector (the one containing the corner seed point)
+    // BEFORE scattering walls, so we can guarantee it stays empty.
+    int spawnIdx = 0;
+    {
+        Tree* sn = getPosition(SPAWN_SEED_X, SPAWN_SEED_Y, V.Container_map);
+        if (sn != NULL)
+        {
+            int idx = sn->leaf.order - 1;
+            if (idx >= 0 && idx < V.rooms) spawnIdx = idx;
+        }
+    }
+
+    // Scatter random walls, skipping the spawn sector.
+    for (int i = 0; i < V.rooms; i++)
+    {
+        if (i == spawnIdx) continue;
+
+        if (random(0, 100) < WALL_DENSITY_PERCENT)
+        {
+            V.test[i].leaf.is_wall = true;
+            V.test[i].leaf.color   = WALL_COLORS[random(0, NUM_WALL_COLORS)];
+        }
+    }
+
+    // Force the spawn sector empty (defensive: random() above can't have
+    // touched it, but if any code path changes that this still wins).
+    V.test[spawnIdx].leaf.is_wall = false;
+    V.test[spawnIdx].leaf.color   = BLACK;
+
+    P.player_px   = cx(V.test[spawnIdx].leaf);
+    P.player_py   = cy(V.test[spawnIdx].leaf);
+    V.playerAngle = SPAWN_ANGLE;
+
+    Serial.print(F("[Scene] spawn idx=")); Serial.print(spawnIdx);
+    Serial.print(F(" px="));               Serial.print(P.player_px);
+    Serial.print(F(" py="));               Serial.println(P.player_py);
+
+    Game_loop(tft, P, V);
 }
 
+
+/* ----- Render + input loop ---------------------------------------------- */
+
+// Compute the player's forward direction in world coordinates from the
+// current view angle. Convention: world angle = atan2(-dy, dx), so the Y
+// axis is flipped vs. textbook math. See BSP_Engine.cpp DrawSegment for
+// the matching projection.
+static inline void forward_vector(float angle, float& fx, float& fy)
+{
+    fx =  cosf(angle);
+    fy = -sinf(angle);
+}
 
 
 void Game_loop(Adafruit_SSD1351 tft, BSP_Player P, View V)
 {
-	// setup pinmodes for controll
-	Btn_setup();
-	// draw status bar at the bottom of the display
-    tft.drawBitmap(0, screenHeight-screenStatistics, stats, 128, 20, YELLOW);	
-	tft.setCursor(25, screenHeight-15);
-    tft.setTextSize(2);
-	// show init Health
-	tft.println(P.health);
-	// draw compass
-	compass(tft, P, V);
+    Btn_setup();
 
-	for(;;)
-	{
-		// rendering engine start. update playerAngle
-		FieldOfView2Angle(V);
+    // Lay down the initial sky + floor (or solid black if disabled). All
+    // subsequent frames are delta-redraws on top of this background.
+    paint_full_background(tft);
 
-		// draw from the nearest wall to the farthest
-		PrintCloseToFar(V.test,getPosition(P.player_px, P.player_py, V.Container_map)->leaf.order, tft, P, V);
-
-		for(int x = 0; x<screenWidth;x++)
-		{
-			if(xBuffer[x] == false)
-			{
-				if(yBuffer[x]!= 0)
-				{
-
-				tft.drawFastVLine(x,((screenHeight-screenStatistics)-1)/2-yBuffer[x]/2,yBuffer[x]+1,BLACK);
-				
-				}
-
-				yBuffer[x] = 0;
-				colorBuffer[x] = BLACK;
-			}
-		}
-
-		//reset clipping buffer
-		memset(xBuffer, 0, screenWidth*sizeof(bool));
-
-
-		// draw Hand at the end, because it must be in the foreground
-    	tft.drawBitmap(screenWidth/2, screenHeight-60, Hand, 40, 40, WHITE);
-
-
-		/********************************************Controlls***********************************************
-		****************************************************************************************************/
-		// action
-		// forward
-		// backward
-		// rotate right
-		// rotate left
-
-
-		// Action button to place or delete a wall in front of the player. when there is an enemy -> neutralize and increase health 
-		// Button action is clicked. first update status of button. When it was clicked -> code below is executed
-		btn_Bounce_A1.update();
-		if(btn_Bounce_A1.fell())
-		{
-			float p_x = sinf(V.playerAngle-PI/2);
-			float p_y = cosf(V.playerAngle-PI/2); 
-
-			// get position of 50 units away sector from player
-			int position = getPosition(P.player_px-p_x * 50 , P.player_py-p_y * 50,V.Container_map)->leaf.order;
-
-			if( V.test[position-1].leaf.is_wall == false)
-			{
-				if(V.test[position-1].leaf.is_enemy == true)
-				{
-					P.health = P.health+25;
-					V.test[position-1].leaf.is_enemy = false;
-					tft.fillRect(25,SCREEN_HEIGHT-20, 35, 20,BLACK);
-
-					tft.setCursor(25, screenHeight-15);
-					tft.setTextSize(2);
-
-					tft.println(P.health);
-
-					V.test[position-1].leaf.is_enemy = false;
-				}
-
-				V.test[position-1].leaf.is_wall = true;
-				V.test[position-1].leaf.color = BLUE;
-				game_Near_Walls(V.test, V, 1);		
-			}
-
-			else
-			{
-				V.test[position-1].leaf.is_wall = false; 
-				V.test[position-1].leaf.color = BLACK;
-				game_Near_Walls(V.test, V, 0);
-
-			}
-		}
-
-
-		// move forward
-		// button forward is clicked. first update status of button. When it was clicked -> code below is executed
-		btn_Bounce_F.update();
-		if(btn_Bounce_F.fell())
-		{  
-			
-			float p_x = sinf(V.playerAngle-PI/2);	// single vectors from Player Angle
-			float p_y = cosf(V.playerAngle-PI/2); 	// single vectors from Player Angle
-
-			int position = getPosition(P.player_px-p_x * P.playerMove , P.player_py-p_y * P.playerMove,V.Container_map)->leaf.order;
-
-
-			if(V.test[position-1].leaf.is_wall == false && (position >= 0  && position <= V.rooms))
-			{
-				compass(tft, P, V);	// refresh compass
-
-				if(V.test[position-1].leaf.order == P.target_sector)
-				{
-					
-					win(tft);			// show win text and goto menu view
-
-				}
-				// when next position is an enemy sector -> health decrease. when <=0 -> the end. 
-				if(V.test[position-1].leaf.is_enemy == true)
-				{
-					P.health = P.health-25;
-
-					if(P.health <=0)
-					{
-						lose(tft);
-					}
-
-					V.test[position-1].leaf.is_enemy = false;
-					tft.fillRect(25,SCREEN_HEIGHT-20, 35, 20,BLACK);
-
-					tft.setCursor(25, screenHeight-15);
-					tft.setTextSize(2);
-
-					// print actual health
-					tft.println(P.health);
-				}
-				
-	
-				P.player_px = P.player_px-p_x * P.playerMove;  // direction multiplied by playerMove
-
-				P.player_py = P.player_py-p_y * P.playerMove;  // direction multiplied by playerMove
-			}
-		}
-
-
-		//move Backward
-		// Button backward is clicked. first update status of button. When it was clicked -> code below is executed
-		btn_Bounce_B.update();
-		if(btn_Bounce_B.fell())
-		{  
-			float p_x = sinf(V.playerAngle-PI/2);
-			float p_y = cosf(V.playerAngle-PI/2); 
-
-			int position = getPosition(P.player_px+p_x * P.playerMove , P.player_py+p_y*P.playerMove,V.Container_map)->leaf.order;
-
-			if(V.test[position-1].leaf.is_wall == false && (position >= 0  && position <= V.rooms))
-			{
-				compass(tft, P, V);		// refresh compass
-
-				if(V.test[position-1].leaf.order == P.target_sector)
-				{
-
-					win(tft);
-
-				}
-				// when next position is an enemy sector -> health decrease. when <=0 -> the end. 
-				if(V.test[position-1].leaf.is_enemy == true)
-				{
-					P.health = P.health-25;
-
-					if(P.health <=0)
-					{
-						lose(tft);
-					}
-
-					V.test[position-1].leaf.is_enemy = false;
-					tft.fillRect(25,SCREEN_HEIGHT-20, 35, 20,BLACK);
-
-					tft.setCursor(25, screenHeight-15);
-					tft.setTextSize(2);
-
-					// print actual health
-					tft.println(P.health);
-				}
-
-				P.player_px = P.player_px+p_x * P.playerMove;  	// direction multiplied by playerMove
-
-				P.player_py = P.player_py+p_y*P.playerMove;  	// direction multiplied by playerMove
-			}
-		}
-
-
-		//rotate right
-		// Button rotate_right is clicked. first update status of button. When it was clicked -> code below is executed
-		btn_Bounce_R.update();
-		if(btn_Bounce_R.fell())
-		{
-
-			V.playerAngle = V.playerAngle-P.playerTurn;
-
-			compass(tft, P, V);		// refresh compass
-		}
-
-
-		// roate left
-		// Button rotate_left is clicked. first update status of button. When it was clicked -> code below is executed
-		btn_Bounce_L.update();
-		if(btn_Bounce_L.fell())
-		{
-
-			V.playerAngle = V.playerAngle+P.playerTurn;
-
-			compass(tft, P, V);		// refresh compass								
-		} 
-	}
-}
-
-
-
-/********************************************TEXT***********************************************
-************************************************************************************************/
-
-// win text
-void win(Adafruit_SSD1351 menu)
-{
-	buildMenu build;
-
-	menu.fillScreen(BLACK);
-    menu.drawRect(0,0,128,128,YELLOW);
-
-    menu.setCursor(10, (screenHeight/2)-10);
-    menu.setTextSize(2);
-
-    menu.println("   WIN");
-    
-	delay(1000);
-	
-	build.ShowMenu(menu);
-}
-
-// lose text
-void lose(Adafruit_SSD1351 menu)
-{
-	buildMenu build;
-
-	menu.fillScreen(BLACK);
-    menu.drawRect(0,0,128,128,YELLOW);
-
-    menu.setCursor(10, (screenHeight/2)-10);
-    menu.setTextSize(2);
-
-    menu.println("  lose");
-    
-	delay(1000);
-	
-	build.ShowMenu(menu);
-}
-
-
-/********************************************GAMEPLAY ELEMENTS***********************************
-************************************************************************************************/
-
-//show compass. Following the compass needle towards the north leads to victory
-// playerAngle - (angle from player to target) -> when difference is 0, player is looking towards target, then needle points north.     ||     When != not on roead
-
-void compass(Adafruit_SSD1351 menu, BSP_Player P, View V)
-{
-	//delete old compass needle on this rectangle place
-	menu.fillRect(100, 110, 120, 130, BLACK);
-
-	// save playerAngle
-	float backup_playerA = V.playerAngle*180/PI;
-	// playerAngle always between 0 - 360
-	backup_playerA = backup_playerA + ceil(-backup_playerA / 360 ) *360;
-
-
-	float delta_x = ( P.target_x - P.player_px);
-	float delta_y = ( P.target_y - P.player_py);
-
-	// angle between positv x-axis and vector(player-target)
-	float angle = atan(delta_y/delta_x)*180/PI;
-
-	// angle always between 0 - 360
-	angle = angle + ceil(-angle / 360) * 360;
-
-	angle = 180-angle;
-
-	// drawing compass needle 
-	menu.drawLine(110, 120, 110 + 10*sin((backup_playerA*PI/180)-angle*PI/180), 120 + 10*cos((backup_playerA*PI/180)-angle*PI/180), YELLOW);
-}
-
-
-
-
-// 1 -> is getting a wall and 0 -> is getting void
-void game_Near_Walls(struct Tree* AT, View V, int mode)
-{
-
-  for(int x = 0; x<V.rooms; x++)
-  {
-
-    if(AT[x].leaf.is_wall == true)
+    for (;;)
     {
+        // ----- Per-frame state -----
+        Serial_poll();
+        FieldOfView2Angle(V);
 
-      // save coordinates in variables
-      int AT_x = AT[x].leaf.x;
-      int AT_y = AT[x].leaf.y;
-      int AT_w = AT[x].leaf.w;
-      int AT_h = AT[x].leaf.h;
+        // ----- Render -----
+        RenderBSP(V.Container_map, tft, P, V);
 
-      //this variable save coordinates of the close sectors
-      int xl = AT_x  - (AT_w/2); int yl = AT_y + (AT_h /2);
-      int xr = (AT_x  + AT_w) + (AT_w/2); int yr = AT_y + (AT_h /2);
-      int xd = AT_x  + (AT_w/2); int yd = AT_y+ AT_h +(AT_h/2);
-      int xu = AT_x  + (AT_w/2); int yu = AT_y - (AT_h/2);
-
-      //check if left sector is a wall
-      if(xl > 0 && xl< map_Size && yl > 0 && yl <map_Size )
-      {
-        int pos = getPosition(xl,yl ,V.Container_map)->leaf.order;
-        if(AT[pos-1].leaf.is_wall == true)
+        // Repaint the sky/floor over any column that lost its wall this
+        // frame. Without this, last frame's wall would linger.
+        for (int x = 0; x < screenWidth; x++)
         {
-			if(mode == 1)
-			{
-            	AT[x].leaf.on_left = true;
-			}
-			if(mode == 0)
-			{
-				AT[pos-1].leaf.on_right = false;
-				AT[x].leaf.on_left = false;
-			}
+            if (xBuffer[x] == false)
+            {
+                if (yBuffer[x] != 0)
+                {
+                    int top    = (screenHeight - 1) / 2 - yBuffer[x] / 2;
+                    int height = yBuffer[x] + 1;
+                    paint_background_strip(tft, x, top, height);
+                }
+                yBuffer[x]     = 0;
+                colorBuffer[x] = BLACK;
+            }
         }
-      }
+        memset(xBuffer, 0, screenWidth * sizeof(bool));
 
-      //check if right sector is a wall
-      if(xr > 0 && xr< map_Size && yr > 0 && yr <map_Size)
-      {
+        // ----- Input -----
+        btn_Bounce_F.update();
+        btn_Bounce_B.update();
+        btn_Bounce_L.update();
+        btn_Bounce_R.update();
 
-      int pos = getPosition(xr,yr ,V.Container_map)->leaf.order;
-      if(AT[pos-1].leaf.is_wall == true)
-        {
-			if(mode == 1)
-			{
-            	AT[x].leaf.on_right = true;
-			}
-			if(mode == 0)
-			{
-				AT[pos-1].leaf.on_left = false;
-				AT[x].leaf.on_right = false;
+        // Forward direction in world frame.
+        float fx, fy;
+        forward_vector(V.playerAngle, fx, fy);
 
-			}
-        }
-      }
+        // --- Forward / backward ---
+        // Hardware buttons -> continuous (per-frame) walk while held.
+        // Serial keystrokes -> single discrete step per key event.
 
-      //check if down sector is a wall
-      if(xd > 0 && xd< map_Size && yd > 0 && yd <map_Size)
-      {
+        if (btn_Bounce_F.read() == LOW)
+            try_move(P, V,
+                     P.player_px + (int)(fx * HOLD_MOVE_RATE),
+                     P.player_py + (int)(fy * HOLD_MOVE_RATE));
 
-        int pos = getPosition(xd,yd ,V.Container_map)->leaf.order;
-        if(AT[pos-1].leaf.is_wall == true)
-        {
-			if(mode == 1)
-			{
-            	AT[x].leaf.on_down = true;
-			}
-			if(mode == 0)
-			{
-				AT[pos-1].leaf.on_up = false;
-				AT[x].leaf.on_down = false;
-			}
-        }
-      }
+        if (Serial_F())
+            try_move(P, V,
+                     P.player_px + (int)(fx * SERIAL_MOVE_STEP),
+                     P.player_py + (int)(fy * SERIAL_MOVE_STEP));
 
-      //check if right sector is a wall
-       if(xu > 0 && xu< map_Size && yu > 0 && yu <map_Size)
-      {
+        if (btn_Bounce_B.read() == LOW)
+            try_move(P, V,
+                     P.player_px - (int)(fx * HOLD_MOVE_RATE),
+                     P.player_py - (int)(fy * HOLD_MOVE_RATE));
 
-        int pos = getPosition(xu,yu ,V.Container_map)->leaf.order;
-        if(AT[pos-1].leaf.is_wall == true)
-        {
-			if(mode == 1)
-			{
-            	AT[x].leaf.on_up = true;
-			}
-			if(mode == 0)
-			{
-				AT[pos-1].leaf.on_down = false;
-				AT[x].leaf.on_up = false;
-			}
-        }
-      }
+        if (Serial_B())
+            try_move(P, V,
+                     P.player_px - (int)(fx * SERIAL_MOVE_STEP),
+                     P.player_py - (int)(fy * SERIAL_MOVE_STEP));
+
+        // --- Rotation ---
+        // Right turn = decrease angle (world rotates left on screen, classic
+        // FPS feel). Left turn = increase angle.
+
+        if (btn_Bounce_R.read() == LOW) V.playerAngle -= HOLD_TURN_RATE;
+        if (Serial_R())                 V.playerAngle -= SERIAL_TURN_STEP;
+
+        if (btn_Bounce_L.read() == LOW) V.playerAngle += HOLD_TURN_RATE;
+        if (Serial_L())                 V.playerAngle += SERIAL_TURN_STEP;
     }
-  }
 }
-
-
-
-/********************************************TEXTURE********************************************
-************************************************************************************************/
-
-
-// Textures are made with GIMP. Than convertet into this byte-array form
-// converter: http://javl.github.io/image2cpp/
-
-
-// Hand texture (Bitmap)
-
-    unsigned char Hand  [] = {
-   	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x80, 0x00, 0x00, 0x00, 0x01, 0xc0, 0x00, 0x00, 0x00, 0x01, 0xc0, 0x00, 0x00, 0x01, 0xc1, 
-	0xc6, 0x00, 0x00, 0x03, 0xe1, 0xc6, 0x00, 0x00, 0x03, 0xe1, 0xc7, 0x00, 0x00, 0x01, 0xe1, 0xc7, 
-	0x00, 0x00, 0x00, 0xf1, 0xc7, 0x00, 0x00, 0x00, 0x71, 0xc7, 0x00, 0x00, 0x00, 0x78, 0xc7, 0x00, 
-	0x00, 0x00, 0x78, 0xc7, 0x00, 0x00, 0x00, 0x7c, 0xc7, 0x06, 0x00, 0x00, 0x3c, 0xe7, 0x06, 0x00, 
-	0x00, 0x1f, 0xff, 0x0e, 0x00, 0x00, 0x1f, 0xfe, 0x1e, 0x00, 0x00, 0x1f, 0xfe, 0x3c, 0x00, 0x00, 
-	0x1f, 0xff, 0x3c, 0x00, 0x00, 0x1f, 0xff, 0xfc, 0x00, 0x00, 0x1f, 0xff, 0xf8, 0x00, 0x00, 0x1f, 
-	0xff, 0xf8, 0x00, 0x00, 0x1f, 0xff, 0xf8, 0x00, 0x00, 0x1f, 0xff, 0xf8, 0x00, 0x07, 0x1f, 0xff, 
-	0xf8, 0x00, 0x07, 0xff, 0xff, 0xf8, 0x00, 0x07, 0xff, 0xff, 0xfc, 0x00, 0x03, 0xff, 0xff, 0xff, 
-	0x00, 0x00, 0xff, 0xff, 0xff, 0x80, 0x00, 0x1f, 0xff, 0xff, 0xe0, 0x00, 0x0f, 0xff, 0xff, 0xf0, 
-	0x00, 0x01, 0xff, 0xff, 0xf8, 0x00, 0x00, 0x7f, 0xff, 0xfc, 0x00, 0x00, 0x3f, 0xff, 0xfe, 0x00, 
-	0x00, 0x0f, 0xff, 0xff, 0x00, 0x00, 0x07, 0xff, 0xff, 0x00, 0x00, 0x03, 0xff, 0xff, 0x00, 0x00, 
-	0x01, 0xff, 0xff, 0x00, 0x00, 0x00, 0xff, 0xff
-};
-
-
-// status bar texture
-
-unsigned char stats  [] = {
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x01, 0xc7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x03, 0xef, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x26, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x07, 0xff, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x0f, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x0f, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x0f, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x0f, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x0f, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x0f, 0xff, 0xe0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x54, 0x00, 0x1a, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x07, 0xff, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7c, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x03, 0xff, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x01, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x7c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
-};

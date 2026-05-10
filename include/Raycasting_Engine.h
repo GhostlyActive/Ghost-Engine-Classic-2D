@@ -14,7 +14,7 @@ We add a Y-Buffer and color-Buffer to speed up SPI Drawing on the screen
 
 #include "Raycasting_Settings.h"
 #include "Display_Driver.h"
-#include "Controlls.h"
+#include "Controls.h"
 
 
 

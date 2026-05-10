@@ -1,44 +1,49 @@
-//  1.)  showMenu
-//  1.1) "play" ->BSP_Map_Editor -> BSP_Engine 
-//  1.2) "Settings" -> BSP 
-//  1.3) "Raycast" ->  Raycasting_Map_Editor -> Raycasting_Engine
-
-
 #include "Display_Driver.h"
 #include "Menu.h"
+#include "Controls.h"
 
 
-//OLED DISPLAY -> Constructor for Hardware SPI. Much faster than Software SPI 
-Adafruit_SSD1351 tft = Adafruit_SSD1351(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI, CS_PIN, DC_PIN, RST_PIN);
+/* ============================================================================
+ *  main.cpp - boot entry point.
+ *
+ *  Boot flow:
+ *      setup()                    Display + Serial + RNG seed
+ *        -> buildMenu.ShowMenu(tft)
+ *          -> Game_start(tft)               (PLAY)
+ *          -> buildMapEditor.Load_Map_Editor (RAYCAST)
+ *
+ *  Both ShowMenu and Game_loop are infinite for-loops, so loop() never runs.
+ * ============================================================================ */
 
 
-//Class Object for graphic Menu
+// Hardware-SPI constructor. Much faster than software SPI on AVR.
+Adafruit_SSD1351 tft = Adafruit_SSD1351(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI,
+                                        CS_PIN, DC_PIN, RST_PIN);
+
+// Persistent menu instance.
 buildMenu build;
 
 
-
-void setup() 
+void setup()
 {
+    tft.begin();
+    tft.fillScreen(BLACK);
+    tft.setSPISpeed(10000000);
 
-  //configuration of the RGB OLED Display
-  tft.begin();
+    // Must match monitor_speed in platformio.ini.
+    Serial.begin(115200);
 
-  //choose starting color 
-  tft.fillScreen(BLACK);
+    // Seed the RNG from a floating analog pin so every boot picks a
+    // different BSP layout and wall pattern.
+    randomSeed(analogRead(A0));
 
-  tft.setSPISpeed(10000000);
-  
-  Serial.begin(225000);
+    Serial_help();
 
-  //load Menu
-  build.ShowMenu(tft);
-
-} 
+    build.ShowMenu(tft);
+}
 
 
 void loop()
 {
-
+    // Unreachable: ShowMenu / Game_loop never return.
 }
-
-

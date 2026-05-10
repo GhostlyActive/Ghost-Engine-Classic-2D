@@ -1,53 +1,30 @@
-#ifndef GAME_h
-#define GAME_h
+#ifndef GAME_H
+#define GAME_H
 
-#include "BSP_Map_Editor.h"
-#include "Menu.h"
+#include "BSP_Engine.h"
 
 
-//start bsp_map_editor
+/* ============================================================================
+ *  Game.h
+ *
+ *  The "PLAY" entry point of the menu. Generates a BSP world, scatters
+ *  random colored walls, places the player at a corner sector facing
+ *  inward, and runs the render/movement loop.
+ *
+ *  No map editor, no enemies, no goal - just walk around the procedural
+ *  geometry.
+ * ============================================================================ */
+
+
+// Build the BSP world, scatter walls, and enter Game_loop. Returns to the
+// caller (the menu) only on RAM allocation failure.
 void Game_start(Adafruit_SSD1351 tft);
 
 
-// real game starts. Rendering Engine starts and draw textures and and load game logic. working controls.
-void Game_loop(Adafruit_SSD1351 tft, BSP_Player P, View v);
-
-
-
-/********************************************TEXT WIN/LOSE***********************************************
-************************************************************************************************/
-
-// win and lose text -> and goto menu scene
-void win(Adafruit_SSD1351 menu);
-void lose(Adafruit_SSD1351 menu);
-
-
-
-/********************************************GAMEPLAY ELEMENTS************************************
-************************************************************************************************/
-
-
-// this function update wheter left,right, up, down is a near wall
-void game_Near_Walls(struct Tree* AT, View V, int mode);
-
-// working compass. target is always north in the compass
-void compass(Adafruit_SSD1351 menu, BSP_Player P, View V);
-
-
-
-/********************************************TEXTURE********************************************
-************************************************************************************************/
-
-// Textures are made with GIMP. Than convertet into this form
-// converter: http://javl.github.io/image2cpp/
-
-
-// Hand texture (Bitmap)
-extern unsigned char Hand[];
-
-
-// status bar texture
-extern unsigned char stats[];
+// Per-frame render + input loop. Owns the player position and view angle.
+// Movement uses sector-based collision with PLAYER_RADIUS and slides along
+// walls.
+void Game_loop(Adafruit_SSD1351 tft, BSP_Player P, View V);
 
 
 #endif
