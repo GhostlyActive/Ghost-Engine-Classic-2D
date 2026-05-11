@@ -26,19 +26,19 @@ static const int      NUM_WALL_COLORS = sizeof(WALL_COLORS) / sizeof(WALL_COLORS
 
 /* ----- Wall lookup ------------------------------------------------------- */
 //
-// V.Container_map (the BSP tree) and V.test (the flat leaf array) hold
-// separate copies of each leaf. Wall flags are kept in V.test, so any
+// V.bspRoot (the BSP tree) and V.leaves (the flat leaf array) hold
+// separate copies of each leaf. Wall flags are kept in V.leaves, so any
 // collision or wall query must use the tree to locate the sector and then
-// jump into V.test via the 'order' index.
+// jump into V.leaves via the 'order' index.
 static bool sector_is_wall_at(int x, int y, View& V)
 {
-    Tree* sect = getPosition(x, y, V.Container_map);
+    Tree* sect = getPosition(x, y, V.bspRoot);
     if (sect == NULL) return true;          // out of bounds -> treat as wall
 
     int idx = sect->leaf.order - 1;
     if (idx < 0 || idx >= V.rooms) return true;
 
-    return V.test[idx].leaf.is_wall;
+    return V.leaves[idx].leaf.is_wall;
 }
 
 
@@ -82,7 +82,7 @@ static void try_move(BSP_Player& P, View& V, int new_x, int new_y)
 
 /* ----- "Out of RAM" screen ----------------------------------------------- */
 
-static void out_of_ram_screen(Adafruit_SSD1351 tft)
+static void out_of_ram_screen(Adafruit_SSD1351& tft)
 {
     tft.fillScreen(BLACK);
     tft.drawRect(0, 0, screenWidth, screenHeight, RED);
@@ -103,14 +103,14 @@ static void out_of_ram_screen(Adafruit_SSD1351 tft)
 
 /* ----- Game start: build world + place player ---------------------------- */
 
-void Game_start(Adafruit_SSD1351 tft)
+void Game_start(Adafruit_SSD1351& tft)
 {
     View V = Save_BSP_Engine();
 
-    if (V.test == NULL || V.Container_map == NULL)
+    if (V.leaves == NULL || V.bspRoot == NULL)
     {
         out_of_ram_screen(tft);
-        buildMenu menu;
+        Menu menu;
         menu.ShowMenu(tft);
         return;
     }
@@ -121,7 +121,7 @@ void Game_start(Adafruit_SSD1351 tft)
     // BEFORE scattering walls, so we can guarantee it stays empty.
     int spawnIdx = 0;
     {
-        Tree* sn = getPosition(SPAWN_SEED_X, SPAWN_SEED_Y, V.Container_map);
+        Tree* sn = getPosition(SPAWN_SEED_X, SPAWN_SEED_Y, V.bspRoot);
         if (sn != NULL)
         {
             int idx = sn->leaf.order - 1;
@@ -136,18 +136,18 @@ void Game_start(Adafruit_SSD1351 tft)
 
         if (random(0, 100) < WALL_DENSITY_PERCENT)
         {
-            V.test[i].leaf.is_wall = true;
-            V.test[i].leaf.color   = WALL_COLORS[random(0, NUM_WALL_COLORS)];
+            V.leaves[i].leaf.is_wall = true;
+            V.leaves[i].leaf.color   = WALL_COLORS[random(0, NUM_WALL_COLORS)];
         }
     }
 
     // Force the spawn sector empty (defensive: random() above can't have
     // touched it, but if any code path changes that this still wins).
-    V.test[spawnIdx].leaf.is_wall = false;
-    V.test[spawnIdx].leaf.color   = BLACK;
+    V.leaves[spawnIdx].leaf.is_wall = false;
+    V.leaves[spawnIdx].leaf.color   = BLACK;
 
-    P.player_px   = cx(V.test[spawnIdx].leaf);
-    P.player_py   = cy(V.test[spawnIdx].leaf);
+    P.player_px   = cx(V.leaves[spawnIdx].leaf);
+    P.player_py   = cy(V.leaves[spawnIdx].leaf);
     V.playerAngle = SPAWN_ANGLE;
 
     Serial.print(F("[Scene] spawn idx=")); Serial.print(spawnIdx);
@@ -171,7 +171,7 @@ static inline void forward_vector(float angle, float& fx, float& fy)
 }
 
 
-void Game_loop(Adafruit_SSD1351 tft, BSP_Player P, View V)
+void Game_loop(Adafruit_SSD1351& tft, BSP_Player P, View V)
 {
     Btn_setup();
 
@@ -186,7 +186,7 @@ void Game_loop(Adafruit_SSD1351 tft, BSP_Player P, View V)
         FieldOfView2Angle(V);
 
         // ----- Render -----
-        RenderBSP(V.Container_map, tft, P, V);
+        RenderBSP(V.bspRoot, tft, P, V);
 
         // Repaint the sky/floor over any column that lost its wall this
         // frame. Without this, last frame's wall would linger.

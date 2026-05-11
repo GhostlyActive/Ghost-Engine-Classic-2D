@@ -10,7 +10,7 @@
  * Adds a Y-buffer and color buffer to speed up SPI drawing on the screen.
  */
 
-void Load_Ray_Engine(Adafruit_SSD1351 tft, Player p)
+void Load_Ray_Engine(Adafruit_SSD1351& tft, Player p)
 {
 
   // Clear screen

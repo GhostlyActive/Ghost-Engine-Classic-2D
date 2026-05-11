@@ -7,14 +7,14 @@
  *
  *  Sections:
  *      1) AVR free-RAM helper
- *      2) Map generation: BSP recursive split + leaf numbering
- *      3) Geometry helpers: VectorDegree
- *      4) Spatial query: getPosition
- *      5) Build entry point: Save_BSP_Engine
- *      6) Renderer: FillSegment, DrawSegment, DrawWall, RenderBSP
- *      7) View helpers: FieldOfView2Angle
+ *      2) Map generation: BSP recursive split + leaf flattening (file-local)
+ *      3) Spatial query: getPosition
+ *      4) Build entry point: Save_BSP_Engine
+ *      5) Renderer: FillSegment, DrawSegment, DrawWall, RenderBSP
+ *      6) View helpers: FieldOfView2Angle
+ *      7) Background painting (sky / floor)
  *
- *  See BSP_Engine.h for the API and BSP_Settings.h for tunables.
+ *  See BSP_Engine.h for the public API and BSP_Settings.h for tunables.
  * ============================================================================ */
 
 
@@ -33,10 +33,18 @@ static int free_ram()
 
 
 /* ============================================================================
- *  2) Map generation
+ *  2) Map generation (all file-local)
  * ============================================================================ */
 
-Tree* newLeaf(Container leaf)
+// Pair of containers returned from split_in_half.
+struct Pair2
+{
+    Container a;
+    Container b;
+};
+
+
+static Tree* new_leaf(Container leaf)
 {
     Tree* node = (Tree*)malloc(sizeof(Tree));
     if (node == NULL) return NULL;
@@ -49,10 +57,10 @@ Tree* newLeaf(Container leaf)
 
 // Split a container into two halves (vertical or horizontal). Iterative,
 // not recursive: thin containers used to make the recursive version blow
-// the stack. Up to 16 randomised attempts, then a forced split.
-Array2 geo_split(Container* container)
+// the stack. Up to 16 randomised attempts, then a forced vertical split.
+static Pair2 split_in_half(const Container& c)
 {
-    Array2 two;
+    Pair2 r;
 
     for (int tries = 0; tries < 16; tries++)
     {
@@ -60,116 +68,79 @@ Array2 geo_split(Container* container)
 
         if (direction == 0)
         {
-            // Vertical split: cut along the X axis.
-            two.array[0].x = container->x;
-            two.array[0].y = container->y;
-            two.array[0].w = container->w / 2;
-            two.array[0].h = container->h;
+            // Vertical cut along X.
+            r.a.x = c.x;             r.a.y = c.y;
+            r.a.w = c.w / 2;         r.a.h = c.h;
+            r.b.x = c.x + r.a.w;     r.b.y = c.y;
+            r.b.w = c.w - r.a.w;     r.b.h = c.h;
 
-            two.array[1].x = container->x + two.array[0].w;
-            two.array[1].y = container->y;
-            two.array[1].w = container->w - two.array[0].w;
-            two.array[1].h = container->h;
-
-            float r1 = (float)two.array[0].w / (float)two.array[0].h;
-            float r2 = (float)two.array[1].w / (float)two.array[1].h;
-            if (r1 >= 0.5f && r2 >= 0.5f) return two;
+            float r1 = (float)r.a.w / (float)r.a.h;
+            float r2 = (float)r.b.w / (float)r.b.h;
+            if (r1 >= 0.5f && r2 >= 0.5f) return r;
         }
         else
         {
-            // Horizontal split: cut along the Y axis.
-            two.array[0].x = container->x;
-            two.array[0].y = container->y;
-            two.array[0].w = container->w;
-            two.array[0].h = container->h / 2;
+            // Horizontal cut along Y.
+            r.a.x = c.x;             r.a.y = c.y;
+            r.a.w = c.w;             r.a.h = c.h / 2;
+            r.b.x = c.x;             r.b.y = c.y + r.a.h;
+            r.b.w = c.w;             r.b.h = c.h - r.a.h;
 
-            two.array[1].x = container->x;
-            two.array[1].y = container->y + two.array[0].h;
-            two.array[1].w = container->w;
-            two.array[1].h = container->h - two.array[0].h;
-
-            float r1 = (float)two.array[0].h / (float)two.array[0].w;
-            float r2 = (float)two.array[1].h / (float)two.array[1].w;
-            if (r1 >= 1.0f && r2 >= 1.0f) return two;
+            float r1 = (float)r.a.h / (float)r.a.w;
+            float r2 = (float)r.b.h / (float)r.b.w;
+            if (r1 >= 1.0f && r2 >= 1.0f) return r;
         }
     }
 
-    // Fallback: container is too skewed for the ratio constraint. Force
-    // a vertical split. Should not happen with map_Size = 600 and iteration
-    // <= 8, but better to return something valid than to spin forever.
-    two.array[0].x = container->x;
-    two.array[0].y = container->y;
-    two.array[0].w = container->w / 2;
-    two.array[0].h = container->h;
-    two.array[1].x = container->x + two.array[0].w;
-    two.array[1].y = container->y;
-    two.array[1].w = container->w - two.array[0].w;
-    two.array[1].h = container->h;
-    return two;
+    // Fallback: container is too skewed for the ratio constraint. Force a
+    // vertical cut. Should not happen with map_Size = 600 and iteration <= 8.
+    r.a.x = c.x;             r.a.y = c.y;
+    r.a.w = c.w / 2;         r.a.h = c.h;
+    r.b.x = c.x + r.a.w;     r.b.y = c.y;
+    r.b.w = c.w - r.a.w;     r.b.h = c.h;
+    return r;
 }
 
 
 // Recursively split a container `iter` times, building the BSP tree.
-Tree* split_container(Container container, int iter)
+static Tree* build_bsp_tree(Container container, int iter)
 {
-    Tree* root = newLeaf(container);
+    Tree* root = new_leaf(container);
     if (root == NULL) return NULL;
 
     if (iter != 0)
     {
-        Array2 sr = geo_split(&container);
-        root->lchild = split_container(sr.array[0], iter - 1);
-        root->rchild = split_container(sr.array[1], iter - 1);
+        Pair2 sr = split_in_half(container);
+        root->lchild = build_bsp_tree(sr.a, iter - 1);
+        root->rchild = build_bsp_tree(sr.b, iter - 1);
     }
 
     return root;
 }
 
 
-// Walk the tree in-order and copy every leaf into `order[]`, assigning each
-// a running number 1..rooms. The number is also written back to the tree
-// so getPosition() can produce the same index.
-Tree* printLeafNodes(Tree* root, Tree* order, int* step)
+// Walk the tree in-order, copy every leaf into `flat[]`, and stamp each leaf
+// with a running 1..rooms serial number that getPosition() can use as an
+// index into the same flat array. `step` is the running counter.
+static void flatten_tree(Tree* node, Tree* flat, int* step)
 {
-    if (!root) return order;
+    if (!node) return;
 
-    // Leaf?
-    if (!root->lchild && !root->rchild)
+    if (!node->lchild && !node->rchild)
     {
-        root->leaf.order      = *step;
-        order[*step - 1].leaf = root->leaf;
+        node->leaf.order     = *step;
+        flat[*step - 1].leaf = node->leaf;
         (*step)++;
-        return order;
+        return;
     }
 
-    if (root->lchild) printLeafNodes(root->lchild, order, step);
-    if (root->rchild) printLeafNodes(root->rchild, order, step);
-
-    return order;
+    flatten_tree(node->lchild, flat, step);
+    flatten_tree(node->rchild, flat, step);
 }
 
 
 /* ============================================================================
- *  3) Geometry: world-angle from one point to another
- * ============================================================================ */
-
-// Returns the angle of the vector (x_wall, y_wall) -> (x2_wall, y2_wall) in
-// degrees, normalised to [0, 360). The Y axis is flipped (atan2 of -dy)
-// because the screen has +Y pointing down. With this convention:
-//      0 deg   = +X  (east)
-//      90 deg  = -Y  (screen up)
-//      180 deg = -X  (west)
-//      270 deg = +Y  (screen down)
-float VectorDegree(int& x_wall, int& y_wall, int& x2_wall, int& y2_wall)
-{
-    float angle = atan2(-y2_wall + y_wall, x2_wall - x_wall) * 180.0f / PI;
-    angle = angle + ceil(-angle / 360.0f) * 360.0f;     // wrap into [0, 360)
-    return angle;
-}
-
-
-/* ============================================================================
- *  4) Spatial query
+ *  3) Spatial query
  * ============================================================================ */
 
 // Find the leaf node whose AABB contains (value_x, value_y). Recursive
@@ -202,7 +173,7 @@ Tree* getPosition(int value_x, int value_y, Tree* node)
 
 
 /* ============================================================================
- *  5) Build entry point
+ *  4) Build entry point
  * ============================================================================ */
 
 View Save_BSP_Engine()
@@ -219,8 +190,8 @@ View Save_BSP_Engine()
     if (leaves == NULL)
     {
         Serial.println(F("[BSP] ERROR: 'new Tree[rooms]' returned NULL - out of RAM."));
-        v.test          = NULL;
-        v.Container_map = NULL;
+        v.leaves  = NULL;
+        v.bspRoot = NULL;
         return v;
     }
 
@@ -230,18 +201,19 @@ View Save_BSP_Engine()
     root_container.w = map_Size;
     root_container.h = map_Size;
 
-    v.Container_map = split_container(root_container, iteration);
+    v.bspRoot = build_bsp_tree(root_container, iteration);
 
-    if (v.Container_map == NULL)
+    if (v.bspRoot == NULL)
     {
-        Serial.println(F("[BSP] ERROR: split_container returned NULL - out of RAM."));
+        Serial.println(F("[BSP] ERROR: build_bsp_tree returned NULL - out of RAM."));
         delete[] leaves;
-        v.test = NULL;
+        v.leaves = NULL;
         return v;
     }
 
     int step = 1;
-    v.test = printLeafNodes(v.Container_map, leaves, &step);
+    flatten_tree(v.bspRoot, leaves, &step);
+    v.leaves = leaves;
 
     Serial.print(F("[BSP] freeRAM_post=")); Serial.println(free_ram());
     return v;
@@ -249,11 +221,11 @@ View Save_BSP_Engine()
 
 
 /* ============================================================================
- *  6) Renderer
+ *  5) Renderer
  * ============================================================================ */
 
 
-/* ----- 6a) FillSegment --------------------------------------------------
+/* ----- 5a) FillSegment --------------------------------------------------
  *
  * Writes one wall column strip to the display.
  *
@@ -269,7 +241,7 @@ View Save_BSP_Engine()
 void FillSegment(float dist_1, float dist_2,
                  int x_pos_1, int x_pos_2,
                  uint16_t color,
-                 Adafruit_SSD1351 tft, BSP_Player P, View V)
+                 Adafruit_SSD1351& tft, const BSP_Player& P, const View& V)
 {
     // Endpoints can arrive in either screen-X order. Without swapping the
     // for-loop below would run zero times -> visible gap on the wall.
@@ -292,7 +264,7 @@ void FillSegment(float dist_1, float dist_2,
     float inv_step = (inv_d_2 - inv_d_1) / (float)pos_diff;
     float inv_d    = inv_d_1;
 
-    const int screenH = (int)(screenHeight - screenStatistics);
+    const int screenH = screenHeight;
 
     for (int x = x_pos_1; x <= x_pos_2; x++)
     {
@@ -437,7 +409,7 @@ static bool clip_plane(float& d1, float& l1,
 
 void DrawSegment(xy edge1, xy edge2,
                  uint16_t color,
-                 Adafruit_SSD1351 tft, BSP_Player P, View V)
+                 Adafruit_SSD1351& tft, const BSP_Player& P, const View& V)
 {
     // (1) world -> camera space.
     float vx1 = (float)edge1.x - (float)P.player_px;
@@ -489,13 +461,13 @@ void DrawSegment(xy edge1, xy edge2,
 }
 
 
-/* ----- 6c) DrawWall -----------------------------------------------------
+/* ----- 5c) DrawWall -----------------------------------------------------
  *
  * For a single BSP leaf containing a wall, work out which 1-2 sides face
  * the player and draw them. There are 8 octant cases; the layout below
  * mirrors them in code order.
  * ---------------------------------------------------------------------- */
-void DrawWall(Tree* wall, Adafruit_SSD1351 tft, BSP_Player P, View V)
+void DrawWall(Tree* wall, Adafruit_SSD1351& tft, const BSP_Player& P, const View& V)
 {
     if (!wall->leaf.is_wall) return;
 
@@ -566,7 +538,7 @@ void DrawWall(Tree* wall, Adafruit_SSD1351 tft, BSP_Player P, View V)
 }
 
 
-/* ----- 6d) RenderBSP ----------------------------------------------------
+/* ----- 5d) RenderBSP ----------------------------------------------------
  *
  * True Doom-style front-to-back BSP traversal. At every inner node:
  *      same X -> horizontal split (Y-axis)
@@ -575,18 +547,18 @@ void DrawWall(Tree* wall, Adafruit_SSD1351 tft, BSP_Player P, View V)
  * with the per-column xBuffer, this gives correct visibility without
  * any explicit depth sorting.
  *
- * IMPORTANT: at a leaf we look up the wall data in V.test (the flat
- * leaves array), not in Container_map - that's where the random walls
+ * IMPORTANT: at a leaf we look up the wall data in V.leaves (the flat
+ * leaves array), not in bspRoot - that's where the random walls
  * were written by Game_start.
  * ---------------------------------------------------------------------- */
-void RenderBSP(Tree* node, Adafruit_SSD1351 tft, BSP_Player P, View V)
+void RenderBSP(Tree* node, Adafruit_SSD1351& tft, const BSP_Player& P, const View& V)
 {
     if (node == NULL) return;
 
     if (node->lchild == NULL && node->rchild == NULL)
     {
         int idx = node->leaf.order - 1;
-        if (idx >= 0 && idx < V.rooms) DrawWall(&V.test[idx], tft, P, V);
+        if (idx >= 0 && idx < V.rooms) DrawWall(&V.leaves[idx], tft, P, V);
         return;
     }
 
@@ -620,7 +592,7 @@ void RenderBSP(Tree* node, Adafruit_SSD1351 tft, BSP_Player P, View V)
 
 
 /* ============================================================================
- *  7) View helpers
+ *  6) View helpers
  * ============================================================================ */
 
 void FieldOfView2Angle(View& V)
@@ -631,10 +603,10 @@ void FieldOfView2Angle(View& V)
 
 
 /* ============================================================================
- *  8) Background painting (sky / floor)
+ *  7) Background painting (sky / floor)
  * ============================================================================ */
 
-void paint_background_strip(Adafruit_SSD1351 tft, int x, int y, int h)
+void paint_background_strip(Adafruit_SSD1351& tft, int x, int y, int h)
 {
     if (h <= 0) return;
 
@@ -662,7 +634,7 @@ void paint_background_strip(Adafruit_SSD1351 tft, int x, int y, int h)
 }
 
 
-void paint_full_background(Adafruit_SSD1351 tft)
+void paint_full_background(Adafruit_SSD1351& tft)
 {
 #if ENABLE_FLOOR_AND_SKY
     const int mid = screenHeight / 2;

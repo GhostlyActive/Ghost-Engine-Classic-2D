@@ -89,7 +89,7 @@ sectors. Leaves of the resulting binary tree are the playable rooms.
   +--------+      +----+----+       +-----+-+--+
 ```
 
-`iteration = 6` gives **64 leaves**. Each leaf is a 13-byte `Container`
+`iteration = 6` gives **64 leaves**. Each leaf is a 13-byte `Sector`
 (packed flag bits, edges and center recomputed on demand). The tree node
 is 17 bytes total. Sectors are then randomly flagged as walls; the spawn
 sector is forced empty so every wall sits in front of the player.

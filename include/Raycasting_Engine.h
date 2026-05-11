@@ -1,25 +1,23 @@
-#ifndef RAYCASTING_Engine_H
-#define RAYCASTING_Engine_H
-
-/*
-We are using Lode's Computer Graphics Tutorial. This version based on vectors and a camera.
-https://lodev.org/cgtutor/raycasting.html
-
-Also using the Adafruit SSD1351 OLED Driver.
-
-We add a Y-Buffer and color-Buffer to speed up SPI Drawing on the screen
-*/
-
-
+#ifndef RAYCASTING_ENGINE_H
+#define RAYCASTING_ENGINE_H
 
 #include "Raycasting_Settings.h"
 #include "Display_Driver.h"
 #include "Controls.h"
 
 
+/* ============================================================================
+ *  Raycasting_Engine.h
+ *
+ *  Lode-style vector-camera raycaster (https://lodev.org/cgtutor/raycasting.html).
+ *  One DDA ray per screen column on the 24x24 grid in Raycasting_Settings.h.
+ *  Y- and color-buffers speed up SPI drawing the same way the BSP path
+ *  does it - only the columns whose height or color changed are re-pushed.
+ * ============================================================================ */
 
-void Load_Ray_Engine(Adafruit_SSD1351 tft, Player p);
 
+// Enter the first-person raycaster on the current worldMap. Never returns.
+void Load_Ray_Engine(Adafruit_SSD1351& tft, Player p);
 
 
 #endif

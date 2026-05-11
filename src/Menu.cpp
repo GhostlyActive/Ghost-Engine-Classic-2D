@@ -17,11 +17,11 @@
 #define MENU_Y_RAYCAST  (screenHeight - radius * 5)
 
 
-buildMenu::buildMenu()  { setPosition(1); }
-buildMenu::~buildMenu() {}
+Menu::Menu()  { setPosition(1); }
+Menu::~Menu() {}
 
 
-void buildMenu::ShowMenu(Adafruit_SSD1351 menu)
+void Menu::ShowMenu(Adafruit_SSD1351& menu)
 {
     menu.fillScreen(BLACK);
     Btn_setup();
@@ -73,12 +73,12 @@ void buildMenu::ShowMenu(Adafruit_SSD1351 menu)
 
 
 // Yellow selection circle rendered next to the active menu item.
-void buildMenu::ShowCircle(Adafruit_SSD1351 menu, int x, int y)
+void Menu::ShowCircle(Adafruit_SSD1351& menu, int x, int y)
 {
     menu.setTextColor(YELLOW);
     menu.fillCircle(x, y, radius, YELLOW);
 }
 
 
-int  buildMenu::getPosition()        { return position; }
-void buildMenu::setPosition(int x)   { position = x;    }
+int  Menu::getPosition()        { return position; }
+void Menu::setPosition(int x)   { position = x;    }

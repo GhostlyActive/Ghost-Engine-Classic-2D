@@ -8,8 +8,8 @@
  *
  *  Boot flow:
  *      setup()                    Display + Serial + RNG seed
- *        -> buildMenu.ShowMenu(tft)
- *          -> Game_start(tft)               (PLAY)
+ *        -> menu.ShowMenu(tft)
+ *          -> Game_start(tft)                (PLAY)
  *          -> buildMapEditor.Load_Map_Editor (RAYCAST)
  *
  *  Both ShowMenu and Game_loop are infinite for-loops, so loop() never runs.
@@ -21,7 +21,7 @@ Adafruit_SSD1351 tft = Adafruit_SSD1351(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI,
                                         CS_PIN, DC_PIN, RST_PIN);
 
 // Persistent menu instance.
-buildMenu build;
+Menu menu;
 
 
 void setup()
@@ -39,7 +39,7 @@ void setup()
 
     Serial_help();
 
-    build.ShowMenu(tft);
+    menu.ShowMenu(tft);
 }
 
 

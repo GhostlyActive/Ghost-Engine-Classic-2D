@@ -2,7 +2,10 @@
 
 
 /* ============================================================================
- *  BSP_Settings.cpp - storage for the run-time buffers and the BSP depth.
+ *  BSP_Settings.cpp - storage for the per-column run-time buffers.
+ *
+ *  The BSP depth (`iteration`) is now a compile-time `static constexpr`
+ *  in BSP_Settings.h, so no definition is needed here.
  * ============================================================================ */
 
 
@@ -15,11 +18,3 @@
 bool      xBuffer[screenWidth]     = {0};
 int       yBuffer[screenWidth]     = {0};
 uint16_t  colorBuffer[screenWidth] = {0};
-
-
-// Number of recursive BSP splits. 2^iteration sectors total.
-//
-// Mega 2560 has 8 KB SRAM. With the slim 13-byte Container struct,
-// iteration = 6 (64 sectors, ~3 KB tree) leaves plenty of room for the
-// rest of the runtime. Bumping to 7 (128 sectors) still fits but gets tight.
-int iteration = 6;

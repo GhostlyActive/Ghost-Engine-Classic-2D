@@ -65,13 +65,6 @@ inline xy edge_ld(const Container& c)       { xy p; p.x = c.x;       p.y = c.y +
 inline xy edge_rd(const Container& c)       { xy p; p.x = c.x + c.w; p.y = c.y + c.h; return p; }
 
 
-// Pair of containers - return value of geo_split.
-struct Array2
-{
-    Container array[2];
-};
-
-
 // BSP tree node. Inner nodes have lchild + rchild; leaves have both NULL.
 struct Tree
 {
@@ -84,33 +77,32 @@ struct Tree
 /* ----- View (camera + scene) -------------------------------------------- */
 
 // Holds the player's camera state plus pointers into the map data.
-//   leaves       - flat array of all leaf sectors. Wall flags are kept here.
-//   Container_map - root of the BSP tree. Used for getPosition() lookups
-//                   and for the front-to-back render traversal.
-//   The two structures share data (printLeafNodes copies the leaves) so any
-//   wall flag must be set on `leaves`, not on the tree.
+//   leaves   - flat array of all leaf sectors. Wall flags are kept here.
+//   bspRoot  - root of the BSP tree. Used for getPosition() lookups and
+//              for the front-to-back render traversal.
+// The two structures share leaf data (the tree builder copies leaves into
+// `leaves`) so any wall flag must be set on `leaves`, not on the tree.
 struct View
 {
-    int   rooms       = pow(2, iteration);
+    int   rooms       = (1 << iteration);     // 2^iteration, compile-time
     float playerAngle = SPAWN_ANGLE;
     float FOV         = (5.0f * PI / 9.0f);   // 100 degrees
 
-    Tree* test;            // (legacy name) flat leaf array - wall data lives here
-    Tree* Container_map;   // (legacy name) root of the BSP tree
+    Tree* leaves;          // flat leaf array - wall data lives here
+    Tree* bspRoot;         // root of the BSP tree
 };
 
 
-/* ----- Map building ----------------------------------------------------- */
+/* ----- Map building (public API) ---------------------------------------- */
 
-Tree*   newLeaf(Container leaf);
-Array2  geo_split(Container* container);
-Tree*   split_container(Container container, int iter);
-Tree*   printLeafNodes(Tree* root, Tree* order, int* step);
-Tree*   getPosition(int value_x, int value_y, Tree* node);
+// Build the BSP tree, allocate the flat leaf array, number the leaves.
+// Internal helpers (geo_split, split_container, leaf flatten) are
+// file-local statics inside BSP_Engine.cpp.
+View Save_BSP_Engine();
 
-float   VectorDegree(int& x_wall, int& y_wall, int& x2_wall, int& y2_wall);
-
-View    Save_BSP_Engine();
+// Find the leaf node whose AABB contains (x, y). Returns NULL if (x, y)
+// lies outside the map.
+Tree* getPosition(int value_x, int value_y, Tree* node);
 
 
 /* ----- Drawing pipeline ------------------------------------------------- */
@@ -125,17 +117,17 @@ View    Save_BSP_Engine();
 void FillSegment(float dist_1, float dist_2,
                  int x_pos_1, int x_pos_2,
                  uint16_t color,
-                 Adafruit_SSD1351 tft, BSP_Player P, View V);
+                 Adafruit_SSD1351& tft, const BSP_Player& P, const View& V);
 
 void DrawSegment(xy edge1, xy edge2,
                  uint16_t color,
-                 Adafruit_SSD1351 tft, BSP_Player P, View V);
+                 Adafruit_SSD1351& tft, const BSP_Player& P, const View& V);
 
 void DrawWall(Tree* wall,
-              Adafruit_SSD1351 tft, BSP_Player P, View V);
+              Adafruit_SSD1351& tft, const BSP_Player& P, const View& V);
 
 void RenderBSP(Tree* node,
-               Adafruit_SSD1351 tft, BSP_Player P, View V);
+               Adafruit_SSD1351& tft, const BSP_Player& P, const View& V);
 
 
 /* ----- View helpers ----------------------------------------------------- */
@@ -155,10 +147,10 @@ void FieldOfView2Angle(View& V);
 
 // Paints a vertical column strip [y, y+h) with the appropriate background.
 // Splits across screenHeight/2 so sky stays on top and floor on the bottom.
-void paint_background_strip(Adafruit_SSD1351 tft, int x, int y, int h);
+void paint_background_strip(Adafruit_SSD1351& tft, int x, int y, int h);
 
 // Paints the entire screen with sky + floor (or solid black).
-void paint_full_background(Adafruit_SSD1351 tft);
+void paint_full_background(Adafruit_SSD1351& tft);
 
 
 #endif

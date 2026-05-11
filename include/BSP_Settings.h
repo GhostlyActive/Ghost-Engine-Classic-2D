@@ -27,10 +27,6 @@
 #define screenWidth        128
 #define screenHeight       128
 
-// Reserved strip at the bottom for a status / health HUD. The current game
-// has no HUD, so the renderer uses the full 128 pixels.
-#define screenStatistics   0
-
 
 /* ----- 2) Map / BSP ------------------------------------------------------ */
 
@@ -44,7 +40,10 @@
 //   iteration = 6  ->  64 sectors  ->  ~3 KB tree on AVR (fits in 8 KB SRAM).
 //   iteration = 7  ->  128 sectors -> tight but doable.
 //   iteration = 8  ->  256 sectors -> only with the slim 13-byte Container.
-extern int iteration;
+//
+// `static constexpr` so every TU sees the value as a compile-time constant
+// (no FP `pow` pulled in for View::rooms, no .data slot, no extern symbol).
+static constexpr int iteration = 6;
 
 
 /* ----- 3) Renderer ------------------------------------------------------- */

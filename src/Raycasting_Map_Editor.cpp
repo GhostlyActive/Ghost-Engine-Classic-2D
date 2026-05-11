@@ -4,7 +4,7 @@
 // outer borders are always 1. Player can change everything inside of this walls.
 // Color change by clicking on action button 
 
-void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351 tft){
+void buildMapEditor::Load_Map_Editor(Adafruit_SSD1351& tft){
 
   tft.fillScreen(BLACK);
 

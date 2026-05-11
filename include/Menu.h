@@ -19,17 +19,17 @@
 #define radius  5
 
 
-class buildMenu
+class Menu
 {
 private:
     int position;
 
 public:
-    buildMenu();
-    ~buildMenu();
+    Menu();
+    ~Menu();
 
-    void ShowMenu(Adafruit_SSD1351 menu);
-    void ShowCircle(Adafruit_SSD1351 menu, int x, int y);
+    void ShowMenu(Adafruit_SSD1351& menu);
+    void ShowCircle(Adafruit_SSD1351& menu, int x, int y);
 
     int  getPosition();
     void setPosition(int x);

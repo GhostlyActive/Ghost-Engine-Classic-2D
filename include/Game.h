@@ -18,13 +18,13 @@
 
 // Build the BSP world, scatter walls, and enter Game_loop. Returns to the
 // caller (the menu) only on RAM allocation failure.
-void Game_start(Adafruit_SSD1351 tft);
+void Game_start(Adafruit_SSD1351& tft);
 
 
 // Per-frame render + input loop. Owns the player position and view angle.
 // Movement uses sector-based collision with PLAYER_RADIUS and slides along
 // walls.
-void Game_loop(Adafruit_SSD1351 tft, BSP_Player P, View V);
+void Game_loop(Adafruit_SSD1351& tft, BSP_Player P, View V);
 
 
 #endif
