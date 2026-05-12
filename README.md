@@ -31,6 +31,10 @@ pio run -t upload        # flash
 pio device monitor       # serial @ 115200
 ```
 
+Built with C++17 on AVR-GCC. Adafruit GFX, the SSD1351 driver and Bounce2
+are pulled in via `lib_deps` in [`platformio.ini`](platformio.ini) — no
+vendored library copies in the repo.
+
 
 ## Controls
 
@@ -89,10 +93,12 @@ sectors. Leaves of the resulting binary tree are the playable rooms.
   +--------+      +----+----+       +-----+-+--+
 ```
 
-`iteration = 6` gives **64 leaves**. Each leaf is a 13-byte `Sector`
-(packed flag bits, edges and center recomputed on demand). The tree node
-is 17 bytes total. Sectors are then randomly flagged as walls; the spawn
-sector is forced empty so every wall sits in front of the player.
+`iteration = 6` gives **64 leaves**. Each leaf is a 13-byte `Container`
+with `constexpr` member functions for the derived geometry (`cx()`,
+`cy()`, `edge_lu()` …), so edges and the center are recomputed on demand
+without any storage cost. The tree node is 17 bytes total. Sectors are
+randomly flagged as walls afterwards; the spawn sector is forced empty
+so every wall sits in front of the player.
 
 
 ## 2. Front-to-back BSP traversal
@@ -225,6 +231,32 @@ up/down reference during rotation. Set the flag to `0` for the original
 solid-black look.
 
 
+## 5. HUD overlays
+
+Two cosmetic overlays are drawn on top of the world each frame, after
+the column cleanup pass:
+
+| Toggle (in `BSP_Settings.h`) | Effect                                          |
+| ---------------------------- | ----------------------------------------------- |
+| `ENABLE_FPS_COUNTER`         | Small white digits in the top-left, refreshed twice per second. Always repainted so a wall sliding into the corner cannot half-eat the digits. |
+| `ENABLE_MINIMAP`             | 32×32 top-down view of the BSP map in the top-right. Walls in their real color, a white dot for the player, a yellow line for the view direction. |
+
+Each overlay is gated by an `#if` on its toggle, so disabling either one
+removes both the data and the call sites at compile time — zero runtime
+cost when off.
+
+```
+   +------------+------+
+   | FPS        | MAP  |
+   |            |      |
+   +            +------+
+   |        wall view  |
+   |                   |
+   |                   |
+   +-------------------+
+```
+
+
 ---
 
 # The game
@@ -241,6 +273,7 @@ Boot opens a two-entry menu:
 
 <p align="center">
   <img src="/Media/Final_Game.png" width="400" alt="Final Game">
+  <img src="/Media/Game_update_2026.jpeg" width="400" alt="Game Update 2026">
   <img src="/Media/Scene.png" width="400" alt="Scene from the engine">
   <img src="/Media/Visual_Scene.png" width="400" alt="Wall rendering">
   <img src="/Media/Map_Editor.jpeg" width="400" alt="Map editor">
