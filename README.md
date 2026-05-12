@@ -272,7 +272,6 @@ Boot opens a two-entry menu:
 
 
 <p align="center">
-  <img src="/Media/Final_Game.png" width="400" alt="Final Game">
   <img src="/Media/Game_update_2026.jpeg" width="400" alt="Game Update 2026">
   <img src="/Media/Scene.png" width="400" alt="Scene from the engine">
   <img src="/Media/Visual_Scene.png" width="400" alt="Wall rendering">
