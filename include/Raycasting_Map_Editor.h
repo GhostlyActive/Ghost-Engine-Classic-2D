@@ -1,6 +1,4 @@
-#ifndef RAYCASTING_MAP_EDITOR_H
-#define RAYCASTING_MAP_EDITOR_H
-
+#pragma once
 #include "Display_Driver.h"
 #include "Raycasting_Engine.h"
 #include "Controls.h"
@@ -28,4 +26,3 @@ public:
 };
 
 
-#endif

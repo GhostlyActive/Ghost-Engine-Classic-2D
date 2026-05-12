@@ -1,6 +1,4 @@
-#ifndef GAME_H
-#define GAME_H
-
+#pragma once
 #include "BSP_Engine.h"
 
 
@@ -27,4 +25,3 @@ void Game_start(Adafruit_SSD1351& tft);
 void Game_loop(Adafruit_SSD1351& tft, BSP_Player P, View V);
 
 
-#endif

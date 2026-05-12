@@ -1,6 +1,4 @@
-#ifndef CONTROLS_H
-#define CONTROLS_H
-
+#pragma once
 #include "Bounce2.h"
 
 
@@ -66,4 +64,3 @@ bool Serial_A1();          // 'e'
 bool Serial_A2();          // 'q'
 
 
-#endif

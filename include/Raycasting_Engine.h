@@ -1,6 +1,4 @@
-#ifndef RAYCASTING_ENGINE_H
-#define RAYCASTING_ENGINE_H
-
+#pragma once
 #include "Raycasting_Settings.h"
 #include "Display_Driver.h"
 #include "Controls.h"
@@ -20,4 +18,3 @@
 void Load_Ray_Engine(Adafruit_SSD1351& tft, Player p);
 
 
-#endif

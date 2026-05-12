@@ -1,6 +1,4 @@
-#ifndef BSP_ENGINE_H
-#define BSP_ENGINE_H
-
+#pragma once
 #include "BSP_Settings.h"
 #include "Display_Driver.h"
 
@@ -34,38 +32,39 @@ struct xy
 };
 
 
-// One BSP leaf sector. Position + size, color, and two flag bits.
+// One BSP leaf sector. Position + size, color, and a wall flag bit.
 //
-// Kept small for AVR RAM (Mega 2560 has 8 KB SRAM). Derived values like
-// edge corners and the center point are computed on demand by the inline
-// helpers below.
+// Kept small for AVR RAM (Mega 2560 has 8 KB SRAM). Derived geometry
+// (corners, center point) is computed on demand by constexpr member
+// functions below - the compiler inlines them, so no per-call cost.
 struct Container
 {
-    int16_t  x, y, w, h;     // top-left + size; map_Size <= 32k -> int16 fits
-    uint16_t order;          // 1..rooms, leaf number assigned at build time
-    uint16_t color;          // RGB565
+    int16_t  x       = 0;
+    int16_t  y       = 0;
+    int16_t  w       = 0;
+    int16_t  h       = 0;
+    uint16_t order   = 0;         // 1..rooms, stamped at build time
+    uint16_t color   = BLACK;     // RGB565
 
-    uint8_t  is_wall : 1;    // packed into a single byte alongside any future flags
+    uint8_t  is_wall : 1;         // packed flag in one bitfield byte
     uint8_t  _pad    : 7;
 
-    // C++11 ctor (bitfield default member initializers are C++20).
-    Container()
-        : x(0), y(0), w(0), h(0),
-          order(0), color(BLACK),
-          is_wall(0), _pad(0) {}
+    // Bitfield default member initialisers landed in C++20; we're on
+    // C++17, so initialise them in a tiny constexpr default ctor.
+    constexpr Container() : is_wall(0), _pad(0) {}
+
+    // Derived geometry.
+    constexpr int16_t cx() const { return x + w / 2; }
+    constexpr int16_t cy() const { return y + h / 2; }
+
+    constexpr xy edge_lu() const { return {x,     y    }; }
+    constexpr xy edge_ru() const { return {x + w, y    }; }
+    constexpr xy edge_ld() const { return {x,     y + h}; }
+    constexpr xy edge_rd() const { return {x + w, y + h}; }
 };
 
 
-// Inline helpers for derived geometry. Compiler inlines these completely.
-inline int16_t cx(const Container& c)       { return c.x + c.w / 2; }
-inline int16_t cy(const Container& c)       { return c.y + c.h / 2; }
-inline xy edge_lu(const Container& c)       { xy p; p.x = c.x;       p.y = c.y;       return p; }
-inline xy edge_ru(const Container& c)       { xy p; p.x = c.x + c.w; p.y = c.y;       return p; }
-inline xy edge_ld(const Container& c)       { xy p; p.x = c.x;       p.y = c.y + c.h; return p; }
-inline xy edge_rd(const Container& c)       { xy p; p.x = c.x + c.w; p.y = c.y + c.h; return p; }
-
-
-// BSP tree node. Inner nodes have lchild + rchild; leaves have both NULL.
+// BSP tree node. Inner nodes have lchild + rchild; leaves have both nullptr.
 struct Tree
 {
     Container leaf;
@@ -100,7 +99,7 @@ struct View
 // file-local statics inside BSP_Engine.cpp.
 View Save_BSP_Engine();
 
-// Find the leaf node whose AABB contains (x, y). Returns NULL if (x, y)
+// Find the leaf node whose AABB contains (x, y). Returns nullptr if (x, y)
 // lies outside the map.
 Tree* getPosition(int value_x, int value_y, Tree* node);
 
@@ -153,4 +152,3 @@ void paint_background_strip(Adafruit_SSD1351& tft, int x, int y, int h);
 void paint_full_background(Adafruit_SSD1351& tft);
 
 
-#endif

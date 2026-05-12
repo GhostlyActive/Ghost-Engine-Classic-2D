@@ -8,7 +8,7 @@
  *
  *  Boot flow:
  *      setup()                    Display + Serial + RNG seed
- *        -> menu.ShowMenu(tft)
+ *        -> menu.show(tft)
  *          -> Game_start(tft)                (PLAY)
  *          -> buildMapEditor.Load_Map_Editor (RAYCAST)
  *
@@ -39,7 +39,7 @@ void setup()
 
     Serial_help();
 
-    menu.ShowMenu(tft);
+    menu.show(tft);
 }
 
 

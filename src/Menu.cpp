@@ -5,67 +5,75 @@
  *  Menu.cpp
  *
  *  First screen shown on boot. Two entries:
- *      PLAY     -> Game_start (BSP engine with random walls)
- *      RAYCAST  -> buildMapEditor (map editor + Lode-style raycaster)
+ *      Play    -> Game_start            (BSP engine + random walls)
+ *      Raycast -> buildMapEditor        (Lode-style raycaster + map editor)
  *
- *  Selection: Forward/Backward to move the cursor, Action 1 to enter.
+ *  Forward / Backward move the cursor, Action 1 enters the selected mode.
  * ============================================================================ */
 
 
-// Y positions of the two menu items.
-#define MENU_Y_PLAY     (radius * 3)
-#define MENU_Y_RAYCAST  (screenHeight - radius * 5)
+namespace {
 
+// Y positions of the two menu items on screen.
+constexpr int kPlayY    = radius * 3;
+constexpr int kRaycastY = screenHeight - radius * 5;
 
-Menu::Menu()  { setPosition(1); }
-Menu::~Menu() {}
-
-
-void Menu::ShowMenu(Adafruit_SSD1351& menu)
+constexpr int row_y(MenuItem item)
 {
-    menu.fillScreen(BLACK);
+    return item == MenuItem::Play ? kPlayY : kRaycastY;
+}
+
+}  // namespace
+
+
+void Menu::show(Adafruit_SSD1351& tft)
+{
+    tft.fillScreen(BLACK);
     Btn_setup();
 
-    // Initial cursor position.
-    ShowCircle(menu, 5, MENU_Y_PLAY + radius);
+    draw_cursor(tft, 5, row_y(position_) + radius);
 
     for (;;)
     {
         Serial_poll();
 
-        menu.setTextColor(YELLOW);
-        menu.setTextSize(2);
+        tft.setTextColor(YELLOW);
+        tft.setTextSize(2);
 
-        menu.setCursor(5 + 20, MENU_Y_PLAY);    menu.println("PLAY");
-        menu.setCursor(5 + 20, MENU_Y_RAYCAST); menu.println("RAYCAST");
+        tft.setCursor(5 + 20, kPlayY);    tft.println("PLAY");
+        tft.setCursor(5 + 20, kRaycastY); tft.println("RAYCAST");
 
         btn_Bounce_F.update();
         if (btn_Bounce_F.fell() || Serial_F())
         {
-            setPosition(1);
-            menu.fillScreen(BLACK);
-            ShowCircle(menu, 5, MENU_Y_PLAY + radius);
+            position_ = MenuItem::Play;
+            tft.fillScreen(BLACK);
+            draw_cursor(tft, 5, kPlayY + radius);
         }
 
         btn_Bounce_B.update();
         if (btn_Bounce_B.fell() || Serial_B())
         {
-            setPosition(2);
-            menu.fillScreen(BLACK);
-            ShowCircle(menu, 5, MENU_Y_RAYCAST + radius);
+            position_ = MenuItem::Raycast;
+            tft.fillScreen(BLACK);
+            draw_cursor(tft, 5, kRaycastY + radius);
         }
 
         btn_Bounce_A1.update();
         if (btn_Bounce_A1.fell() || Serial_A1())
         {
-            if (getPosition() == 1)
+            switch (position_)
             {
-                Game_start(menu);
-            }
-            else if (getPosition() == 2)
-            {
-                buildMapEditor buildMap;
-                buildMap.Load_Map_Editor(menu);
+                case MenuItem::Play:
+                    Game_start(tft);
+                    break;
+
+                case MenuItem::Raycast:
+                {
+                    buildMapEditor editor;
+                    editor.Load_Map_Editor(tft);
+                    break;
+                }
             }
         }
     }
@@ -73,12 +81,8 @@ void Menu::ShowMenu(Adafruit_SSD1351& menu)
 
 
 // Yellow selection circle rendered next to the active menu item.
-void Menu::ShowCircle(Adafruit_SSD1351& menu, int x, int y)
+void Menu::draw_cursor(Adafruit_SSD1351& tft, int x, int y) const
 {
-    menu.setTextColor(YELLOW);
-    menu.fillCircle(x, y, radius, YELLOW);
+    tft.setTextColor(YELLOW);
+    tft.fillCircle(x, y, radius, YELLOW);
 }
-
-
-int  Menu::getPosition()        { return position; }
-void Menu::setPosition(int x)   { position = x;    }

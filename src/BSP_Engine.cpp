@@ -28,7 +28,7 @@ extern int* __brkval;
 static int free_ram()
 {
     int local;
-    return (int)&local - (__brkval == 0 ? (int)&__heap_start : (int)__brkval);
+    return reinterpret_cast<int>(&local) - (__brkval == 0 ? reinterpret_cast<int>(&__heap_start) : reinterpret_cast<int>(__brkval));
 }
 
 
@@ -47,10 +47,10 @@ struct Pair2
 static Tree* new_leaf(Container leaf)
 {
     Tree* node = (Tree*)malloc(sizeof(Tree));
-    if (node == NULL) return NULL;
+    if (node == nullptr) return nullptr;
     node->leaf   = leaf;
-    node->lchild = NULL;
-    node->rchild = NULL;
+    node->lchild = nullptr;
+    node->rchild = nullptr;
     return node;
 }
 
@@ -74,8 +74,8 @@ static Pair2 split_in_half(const Container& c)
             r.b.x = c.x + r.a.w;     r.b.y = c.y;
             r.b.w = c.w - r.a.w;     r.b.h = c.h;
 
-            float r1 = (float)r.a.w / (float)r.a.h;
-            float r2 = (float)r.b.w / (float)r.b.h;
+            float r1 = static_cast<float>(r.a.w) / static_cast<float>(r.a.h);
+            float r2 = static_cast<float>(r.b.w) / static_cast<float>(r.b.h);
             if (r1 >= 0.5f && r2 >= 0.5f) return r;
         }
         else
@@ -86,8 +86,8 @@ static Pair2 split_in_half(const Container& c)
             r.b.x = c.x;             r.b.y = c.y + r.a.h;
             r.b.w = c.w;             r.b.h = c.h - r.a.h;
 
-            float r1 = (float)r.a.h / (float)r.a.w;
-            float r2 = (float)r.b.h / (float)r.b.w;
+            float r1 = static_cast<float>(r.a.h) / static_cast<float>(r.a.w);
+            float r2 = static_cast<float>(r.b.h) / static_cast<float>(r.b.w);
             if (r1 >= 1.0f && r2 >= 1.0f) return r;
         }
     }
@@ -106,7 +106,7 @@ static Pair2 split_in_half(const Container& c)
 static Tree* build_bsp_tree(Container container, int iter)
 {
     Tree* root = new_leaf(container);
-    if (root == NULL) return NULL;
+    if (root == nullptr) return nullptr;
 
     if (iter != 0)
     {
@@ -147,10 +147,10 @@ static void flatten_tree(Tree* node, Tree* flat, int* step)
 // descent of the BSP tree.
 Tree* getPosition(int value_x, int value_y, Tree* node)
 {
-    if (node->lchild == NULL && node->rchild == NULL)
+    if (node->lchild == nullptr && node->rchild == nullptr)
         return node;
 
-    if (node->lchild != NULL &&
+    if (node->lchild != nullptr &&
         node->lchild->leaf.x <= value_x &&
         (node->lchild->leaf.x + node->lchild->leaf.w) >= value_x &&
         node->lchild->leaf.y <= value_y &&
@@ -159,7 +159,7 @@ Tree* getPosition(int value_x, int value_y, Tree* node)
         return getPosition(value_x, value_y, node->lchild);
     }
 
-    if (node->rchild != NULL &&
+    if (node->rchild != nullptr &&
         node->rchild->leaf.x <= value_x &&
         (node->rchild->leaf.x + node->rchild->leaf.w) >= value_x &&
         node->rchild->leaf.y <= value_y &&
@@ -168,7 +168,7 @@ Tree* getPosition(int value_x, int value_y, Tree* node)
         return getPosition(value_x, value_y, node->rchild);
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -182,16 +182,16 @@ View Save_BSP_Engine()
 
     Serial.print(F("[BSP] iteration="));    Serial.print(iteration);
     Serial.print(F(" rooms="));             Serial.print(v.rooms);
-    Serial.print(F(" sizeof(Tree)="));      Serial.print((int)sizeof(Tree));
+    Serial.print(F(" sizeof(Tree)="));      Serial.print(static_cast<int>(sizeof(Tree)));
     Serial.print(F(" freeRAM_pre="));       Serial.println(free_ram());
 
     Tree* leaves = new Tree[v.rooms];
 
-    if (leaves == NULL)
+    if (leaves == nullptr)
     {
-        Serial.println(F("[BSP] ERROR: 'new Tree[rooms]' returned NULL - out of RAM."));
-        v.leaves  = NULL;
-        v.bspRoot = NULL;
+        Serial.println(F("[BSP] ERROR: 'new Tree[rooms]' returned nullptr - out of RAM."));
+        v.leaves  = nullptr;
+        v.bspRoot = nullptr;
         return v;
     }
 
@@ -203,11 +203,11 @@ View Save_BSP_Engine()
 
     v.bspRoot = build_bsp_tree(root_container, iteration);
 
-    if (v.bspRoot == NULL)
+    if (v.bspRoot == nullptr)
     {
-        Serial.println(F("[BSP] ERROR: build_bsp_tree returned NULL - out of RAM."));
+        Serial.println(F("[BSP] ERROR: build_bsp_tree returned nullptr - out of RAM."));
         delete[] leaves;
-        v.leaves = NULL;
+        v.leaves = nullptr;
         return v;
     }
 
@@ -261,14 +261,14 @@ void FillSegment(float dist_1, float dist_2,
     float inv_d_1 = 1.0f / (dist_1 < minD ? minD : dist_1);
     float inv_d_2 = 1.0f / (dist_2 < minD ? minD : dist_2);
 
-    float inv_step = (inv_d_2 - inv_d_1) / (float)pos_diff;
+    float inv_step = (inv_d_2 - inv_d_1) / static_cast<float>(pos_diff);
     float inv_d    = inv_d_1;
 
     const int screenH = screenHeight;
 
     for (int x = x_pos_1; x <= x_pos_2; x++)
     {
-        int lineHeight = (int)(WALL_PROJ_SCALE * inv_d);
+        int lineHeight = static_cast<int>(WALL_PROJ_SCALE * inv_d);
         if (lineHeight > screenH) lineHeight = screenH;
         if (lineHeight < 0)       lineHeight = 0;
 
@@ -412,10 +412,10 @@ void DrawSegment(xy edge1, xy edge2,
                  Adafruit_SSD1351& tft, const BSP_Player& P, const View& V)
 {
     // (1) world -> camera space.
-    float vx1 = (float)edge1.x - (float)P.player_px;
-    float vy1 = (float)edge1.y - (float)P.player_py;
-    float vx2 = (float)edge2.x - (float)P.player_px;
-    float vy2 = (float)edge2.y - (float)P.player_py;
+    float vx1 = static_cast<float>(edge1.x) - static_cast<float>(P.player_px);
+    float vy1 = static_cast<float>(edge1.y) - static_cast<float>(P.player_py);
+    float vx2 = static_cast<float>(edge2.x) - static_cast<float>(P.player_px);
+    float vy2 = static_cast<float>(edge2.y) - static_cast<float>(P.player_py);
 
     float fx =  cosf(V.playerAngle);
     float fy = -sinf(V.playerAngle);
@@ -443,11 +443,11 @@ void DrawSegment(xy edge1, xy edge2,
         return;
 
     // (3) project to screen X.
-    const float halfW = (float)screenWidth * 0.5f;
+    const float halfW = static_cast<float>(screenWidth) * 0.5f;
     const float invTanHalfF = 1.0f / tan_half;
 
-    int pos1 = (int)(halfW + (lat1 / depth1) * halfW * invTanHalfF);
-    int pos2 = (int)(halfW + (lat2 / depth2) * halfW * invTanHalfF);
+    int pos1 = static_cast<int>(halfW + (lat1 / depth1) * halfW * invTanHalfF);
+    int pos2 = static_cast<int>(halfW + (lat2 / depth2) * halfW * invTanHalfF);
 
     // Defensive clamp - after clipping these should already be in range,
     // but float rounding can bite at the FOV edge.
@@ -480,19 +480,19 @@ void DrawWall(Tree* wall, Adafruit_SSD1351& tft, const BSP_Player& P, const View
         if (P.player_py > (W.y + W.h))
         {
             // Player is below-left  -> see LEFT face + BOTTOM face.
-            DrawSegment(edge_lu(W), edge_ld(W), W.color, tft, P, V);
-            DrawSegment(edge_ld(W), edge_rd(W), W.color, tft, P, V);
+            DrawSegment(W.edge_lu(), W.edge_ld(), W.color, tft, P, V);
+            DrawSegment(W.edge_ld(), W.edge_rd(), W.color, tft, P, V);
         }
         else if (P.player_py < W.y)
         {
             // Player is above-left  -> see LEFT face + TOP face.
-            DrawSegment(edge_lu(W), edge_ld(W), W.color, tft, P, V);
-            DrawSegment(edge_ru(W), edge_lu(W), W.color, tft, P, V);
+            DrawSegment(W.edge_lu(), W.edge_ld(), W.color, tft, P, V);
+            DrawSegment(W.edge_ru(), W.edge_lu(), W.color, tft, P, V);
         }
         else
         {
             // Player is due-left    -> see LEFT face only.
-            DrawSegment(edge_lu(W), edge_ld(W), W.color, tft, P, V);
+            DrawSegment(W.edge_lu(), W.edge_ld(), W.color, tft, P, V);
         }
     }
     else if (P.player_px > (W.x + W.w))
@@ -502,19 +502,19 @@ void DrawWall(Tree* wall, Adafruit_SSD1351& tft, const BSP_Player& P, const View
         if (P.player_py > (W.y + W.h))
         {
             // Player is below-right -> see RIGHT face + BOTTOM face.
-            DrawSegment(edge_rd(W), edge_ru(W), W.color, tft, P, V);
-            DrawSegment(edge_ld(W), edge_rd(W), W.color, tft, P, V);
+            DrawSegment(W.edge_rd(), W.edge_ru(), W.color, tft, P, V);
+            DrawSegment(W.edge_ld(), W.edge_rd(), W.color, tft, P, V);
         }
         else if (P.player_py < W.y)
         {
             // Player is above-right -> see RIGHT face + TOP face.
-            DrawSegment(edge_rd(W), edge_ru(W), W.color, tft, P, V);
-            DrawSegment(edge_ru(W), edge_lu(W), W.color, tft, P, V);
+            DrawSegment(W.edge_rd(), W.edge_ru(), W.color, tft, P, V);
+            DrawSegment(W.edge_ru(), W.edge_lu(), W.color, tft, P, V);
         }
         else
         {
             // Player is due-right   -> see RIGHT face only.
-            DrawSegment(edge_rd(W), edge_ru(W), W.color, tft, P, V);
+            DrawSegment(W.edge_rd(), W.edge_ru(), W.color, tft, P, V);
         }
     }
     else
@@ -524,12 +524,12 @@ void DrawWall(Tree* wall, Adafruit_SSD1351& tft, const BSP_Player& P, const View
         if (P.player_py <= W.y)
         {
             // Player is straight ABOVE -> see TOP face.
-            DrawSegment(edge_ru(W), edge_lu(W), W.color, tft, P, V);
+            DrawSegment(W.edge_ru(), W.edge_lu(), W.color, tft, P, V);
         }
         else if (P.player_py >= (W.y + W.h))
         {
             // Player is straight BELOW -> see BOTTOM face.
-            DrawSegment(edge_ld(W), edge_rd(W), W.color, tft, P, V);
+            DrawSegment(W.edge_ld(), W.edge_rd(), W.color, tft, P, V);
         }
         // else: player is INSIDE the wall sector. Should not happen with
         // PLAYER_RADIUS collision; if it does, draw nothing rather than
@@ -553,9 +553,9 @@ void DrawWall(Tree* wall, Adafruit_SSD1351& tft, const BSP_Player& P, const View
  * ---------------------------------------------------------------------- */
 void RenderBSP(Tree* node, Adafruit_SSD1351& tft, const BSP_Player& P, const View& V)
 {
-    if (node == NULL) return;
+    if (node == nullptr) return;
 
-    if (node->lchild == NULL && node->rchild == NULL)
+    if (node->lchild == nullptr && node->rchild == nullptr)
     {
         int idx = node->leaf.order - 1;
         if (idx >= 0 && idx < V.rooms) DrawWall(&V.leaves[idx], tft, P, V);
@@ -565,10 +565,10 @@ void RenderBSP(Tree* node, Adafruit_SSD1351& tft, const BSP_Player& P, const Vie
     Tree* L = node->lchild;
     Tree* R = node->rchild;
 
-    if (L == NULL || R == NULL)
+    if (L == nullptr || R == nullptr)
     {
-        if (L != NULL) RenderBSP(L, tft, P, V);
-        if (R != NULL) RenderBSP(R, tft, P, V);
+        if (L != nullptr) RenderBSP(L, tft, P, V);
+        if (R != nullptr) RenderBSP(R, tft, P, V);
         return;
     }
 

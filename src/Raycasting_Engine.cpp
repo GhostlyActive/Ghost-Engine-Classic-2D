@@ -32,7 +32,7 @@ void Load_Ray_Engine(Adafruit_SSD1351& tft, Player p)
 
     for(int x = 0; x < screenWidth; x++)
     {
-      double cameraX = 2 * x / (double)(screenWidth) - 1; // x-coordinate in camera space
+      double cameraX = 2 * x / static_cast<double>(screenWidth) - 1; // x-coordinate in camera space
       double rayDirX = p.dirX + p.planeX * cameraX;
       double rayDirY = p.dirY + p.planeY * cameraX;
 
@@ -117,7 +117,7 @@ void Load_Ray_Engine(Adafruit_SSD1351& tft, Player p)
         // Calculate height of line to draw on screen
         if(perpWallDist >= 1 )
         {
-        lineHeight = abs((int)(2*screenHeight / perpWallDist));
+        lineHeight = abs(static_cast<int>(2*screenHeight / perpWallDist));
         }
 
       else

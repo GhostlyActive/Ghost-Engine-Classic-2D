@@ -1,7 +1,4 @@
-#ifndef RAYCASTING_SETTINGS_H
-#define RAYCASTING_SETTINGS_H
-
-
+#pragma once
 /* ============================================================================
  *  Raycasting_Settings.h
  *
@@ -46,4 +43,3 @@ struct Player
 };
 
 
-#endif

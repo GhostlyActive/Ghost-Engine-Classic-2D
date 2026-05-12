@@ -1,5 +1,4 @@
-#ifndef MENU_H
-#define MENU_H
+#pragma once
 
 #include "Game.h"
 #include "Raycasting_Map_Editor.h"
@@ -10,30 +9,34 @@
  *  Menu.h
  *
  *  Two-entry boot menu drawn on the OLED:
- *      Position 1 = PLAY    -> Game_start (BSP engine)
- *      Position 2 = RAYCAST -> buildMapEditor (raycaster path)
+ *      MenuItem::Play    -> Game_start         (BSP engine)
+ *      MenuItem::Raycast -> buildMapEditor     (raycaster path)
  * ============================================================================ */
 
 
 // Radius of the yellow cursor circle drawn next to the active item.
-#define radius  5
+constexpr int radius = 5;
+
+
+// Which item the cursor is currently pointing at. Scoped enum so a stray
+// `int` can't accidentally be passed where one of these is expected.
+enum class MenuItem : uint8_t
+{
+    Play    = 0,
+    Raycast = 1,
+};
 
 
 class Menu
 {
-private:
-    int position;
-
 public:
-    Menu();
-    ~Menu();
+    Menu()  = default;
+    ~Menu() = default;
 
-    void ShowMenu(Adafruit_SSD1351& menu);
-    void ShowCircle(Adafruit_SSD1351& menu, int x, int y);
+    void show(Adafruit_SSD1351& tft);
 
-    int  getPosition();
-    void setPosition(int x);
+private:
+    void draw_cursor(Adafruit_SSD1351& tft, int x, int y) const;
+
+    MenuItem position_ = MenuItem::Play;
 };
-
-
-#endif
