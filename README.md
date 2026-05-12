@@ -271,10 +271,17 @@ Boot opens a two-entry menu:
   map editor (place walls in a 24×24 grid, then enter first-person view).
 
 
+<table align="center">
+  <tr>
+    <td align="center"><img src="/Media/Game_update_2026.jpeg" width="400" alt="Game update 2026"></td>
+    <td align="center"><img src="/Media/Scene.png"             width="400" alt="Scene from the engine"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="/Media/Visual_Scene.png" width="400" alt="Wall rendering"></td>
+    <td align="center"><img src="/Media/Map_Editor.jpeg"  width="400" alt="Map editor"></td>
+  </tr>
+</table>
+
 <p align="center">
-  <img src="/Media/Game_update_2026.jpeg" width="400" alt="Game Update 2026">
-  <img src="/Media/Scene.png" width="400" alt="Scene from the engine">
-  <img src="/Media/Visual_Scene.png" width="400" alt="Wall rendering">
-  <img src="/Media/Map_Editor.jpeg" width="400" alt="Map editor">
-  <img src="/Media/Wolfenstein 3D.jpeg" width="800" alt="Wolfenstein 3D reference">
+  <img src="/Media/Wolfenstein 3D.jpeg" width="100%" alt="Wolfenstein 3D reference">
 </p>
